@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            asset: llmpulse-linux-x86_64
+            binary: llmpulse
+          - os: macos-15-intel
+            asset: llmpulse-macos-x86_64
+            binary: llmpulse
+          - os: macos-15
+            asset: llmpulse-macos-aarch64
+            binary: llmpulse
+          - os: windows-2022
+            asset: llmpulse-windows-x86_64
+            binary: llmpulse.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir "${{ matrix.asset }}"
+          cp "target/release/${{ matrix.binary }}" README.md LICENSE "${{ matrix.asset }}/"
+          tar -czf "${{ matrix.asset }}.tar.gz" "${{ matrix.asset }}"
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "${{ matrix.asset }}"
+          Copy-Item "target/release/${{ matrix.binary }}", "README.md", "LICENSE" -Destination "${{ matrix.asset }}"
+          Compress-Archive -Path "${{ matrix.asset }}" -DestinationPath "${{ matrix.asset }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}.tar.gz
+            ${{ matrix.asset }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" artifacts/* --generate-notes --verify-tag

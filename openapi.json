@@ -1,0 +1,1506 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "LLM Pulse API",
+    "description": "REST API for the LLM Pulse AI visibility platform. Track brand mentions, citations, sentiment, and Share of Voice across AI-generated answers (ChatGPT, Perplexity, Gemini, Google AI Overviews, Google AI Mode, and optional add-on models). Includes the MCP (Model Context Protocol) endpoint for AI clients. MCP is available on every plan (including Starter, Growth and the free trial) via OAuth 2.1, with Bearer-token API keys also accepted for headless integrations on Scale+. Full machine-readable reference at https://llmpulse.ai/api-docs/llms-full.txt.",
+    "version": "1.22.0",
+    "contact": {
+      "name": "LLM Pulse Support",
+      "url": "https://llmpulse.ai",
+      "email": "info@llmpulse.ai"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://llmpulse.ai/terms"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.llmpulse.ai/api/v1",
+      "description": "Production API"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    { "name": "Health", "description": "API health check" },
+    { "name": "Dimensions", "description": "Lists of projects, competitors, prompts, mentions, citations and other dimensional entities" },
+    { "name": "Metrics", "description": "Aggregated time-series, summary, Share of Voice, top sources and agent-traffic metrics" },
+    { "name": "Search Console", "description": "Google Search Console performance data (impressions, clicks, CTR, average position) for projects with a connected GSC property: headline totals, time series, top queries and top pages. Growth plan and above." },
+    { "name": "Citation Intelligence", "description": "Grouped cited-URL intelligence with page-cache metadata, mention evidence, occurrences and sanitized cached content" },
+    { "name": "AI Model Insights", "description": "Aggregate AI Model Insights report endpoints (summary, position distribution, AI Overview results)" },
+    { "name": "Answers", "description": "Raw AI responses with mentions, citations, sentiments, sources, shopping products, brand entities and local businesses" },
+    { "name": "Sentiments", "description": "Per-execution sentiment analysis records" },
+    { "name": "Recommendations", "description": "Recommendation runs (the same data that powers the in-app Recommendations experience)" },
+    { "name": "Prompts", "description": "Bulk-create prompts" },
+    { "name": "GEO Writer", "description": "Create and inspect GEO Writer (formerly Content Intelligence) tasks" },
+    { "name": "MCP", "description": "Model Context Protocol endpoint for AI clients" },
+    { "name": "Webhooks", "description": "Outbound webhook subscriptions: signed HTTP POST notifications for project events (new mentions, citations, executions, negative sentiment, completed reports). Scale plan and above." }
+  ],
+  "paths": {
+    "/ping": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "description": "Validates the API key and optionally pings a project. Returns the authenticated user_id, project (if project_id is supplied), and a request_id.",
+        "operationId": "ping",
+        "parameters": [
+          { "name": "project_id", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Optional project to verify access for" }
+        ],
+        "responses": {
+          "200": {
+            "description": "API is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "user_id": { "type": "integer" },
+                    "project": { "$ref": "#/components/schemas/Project" },
+                    "request_id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+
+    "/metrics/timeseries": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "Time-series metrics",
+        "description": "Returns time-series data for one or more metrics, broken down by actor (project + competitors). Supports day/week/month granularity, with sticky carry-forward semantics for week/month aggregates.",
+        "operationId": "getTimeseries",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Metrics" },
+          { "$ref": "#/components/parameters/Granularity" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/Competitors" },
+          { "$ref": "#/components/parameters/Model" },
+          { "$ref": "#/components/parameters/CollectionId" },
+          { "$ref": "#/components/parameters/CountryCode" },
+          { "$ref": "#/components/parameters/LanguageCode" },
+          { "$ref": "#/components/parameters/Prompt" },
+          { "$ref": "#/components/parameters/PromptType" },
+          { "$ref": "#/components/parameters/BrandKind" },
+          { "$ref": "#/components/parameters/IncludeProject" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": {
+          "200": { "description": "Time-series data", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TimeseriesResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+    "/metrics/summary": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "Aggregated metrics summary",
+        "description": "Same as /metrics/timeseries but adds a `summary` block with total/min/max/last per metric per actor, plus a `position_distribution` block (Position 1, Position 2, Position 3+). Citations and citation rate include visible citations and background source references. Background references use position 0 and are excluded from avg_position and position distributions. `total` is a SUM for count metrics (mentions, citations, responses) and an AVERAGE across periods for rate/percentage and average metrics (visibility/mention_rate, citation_rate, ai_visibility_score, sentiment shares, avg_position, avg_mention_position, net_sentiment); rates are never summed. Each summary row carries an `aggregation` field (`sum` or `average`).",
+        "operationId": "getSummary",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Metrics" },
+          { "$ref": "#/components/parameters/Granularity" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/Competitors" },
+          { "$ref": "#/components/parameters/Model" },
+          { "$ref": "#/components/parameters/CollectionId" },
+          { "$ref": "#/components/parameters/Prompt" },
+          { "$ref": "#/components/parameters/PromptType" },
+          { "$ref": "#/components/parameters/BrandKind" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": {
+          "200": { "description": "Summary metrics", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SummaryResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/metrics/prompt_summary": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "Per-prompt metrics summary",
+        "description": "Paginated per-prompt aggregated metrics. Returns responses, mentions, citations, mention_rate, citation_rate, avg_mention_position and avg_position per prompt. Citations and citation rate include visible citations and background source references; avg_position uses visible citations only. Pass `breakdown=model` to split each prompt by model.",
+        "operationId": "getPromptSummary",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "name": "breakdown", "in": "query", "schema": { "type": "string", "enum": ["model"] }, "description": "Add per-(prompt, model) rows to the output" },
+          { "$ref": "#/components/parameters/Model" },
+          { "$ref": "#/components/parameters/CollectionId" },
+          { "$ref": "#/components/parameters/CountryCode" },
+          { "$ref": "#/components/parameters/LanguageCode" },
+          { "$ref": "#/components/parameters/Prompt" },
+          { "$ref": "#/components/parameters/PromptType" },
+          { "$ref": "#/components/parameters/BrandKind" },
+          { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["responses", "mentions", "citations", "mention_rate", "visibility", "citation_rate", "avg_mention_position", "avg_position"], "default": "responses" } },
+          { "name": "sort_dir", "in": "query", "schema": { "type": "string", "enum": ["asc", "desc"], "default": "desc" } },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": {
+          "200": { "description": "Per-prompt metrics", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PromptSummaryResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/metrics/sov": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "Share of Voice",
+        "description": "Share of Voice breakdown comparing your project to competitors. Returns over_time, current snapshot, and a Top-4 + Others breakdown.",
+        "operationId": "getShareOfVoice",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/Granularity" },
+          { "$ref": "#/components/parameters/Competitors" },
+          { "$ref": "#/components/parameters/Model" },
+          { "$ref": "#/components/parameters/CollectionId" },
+          { "$ref": "#/components/parameters/Prompt" },
+          { "$ref": "#/components/parameters/PromptType" },
+          { "$ref": "#/components/parameters/BrandKind" },
+          { "$ref": "#/components/parameters/Output" },
+          { "$ref": "#/components/parameters/SovView" }
+        ],
+        "responses": {
+          "200": { "description": "Share of voice data", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SovResponse" } } } }
+        }
+      }
+    },
+    "/metrics/top_sources": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "Top cited sources",
+        "description": "Registrable domains most frequently cited in AI responses for the project, including visible citations and background source references. This endpoint remains a domain rollup when exact-subdomain matching is enabled. Results can be sorted by total responses, average mention rate, or average visibility.",
+        "operationId": "getTopSources",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/Model" },
+          { "$ref": "#/components/parameters/CollectionId" },
+          { "$ref": "#/components/parameters/CountryCode" },
+          { "$ref": "#/components/parameters/LanguageCode" },
+          { "$ref": "#/components/parameters/Prompt" },
+          { "$ref": "#/components/parameters/PromptType" },
+          { "$ref": "#/components/parameters/BrandKind" },
+          { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["total_responses", "avg_mention_rate", "avg_visibility"], "default": "total_responses" } },
+          { "name": "query", "in": "query", "schema": { "type": "string" }, "description": "Filter domains by case-insensitive partial match" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": {
+          "200": { "description": "Top sources", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TopSourcesResponse" } } } }
+        }
+      }
+    },
+    "/metrics/agent_traffic": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "AI bot crawler traffic (Scale+, Beta)",
+        "description": "Aggregated AI bot traffic hitting the project's origin server (GPTBot, PerplexityBot, ClaudeBot, OAI-SearchBot, Google-Extended, etc.). Sourced from Cloudflare or CSV uploads. Requires the Scale plan; lower tiers receive ERR_PLAN_REQUIRED.",
+        "operationId": "getAgentTraffic",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "name": "bot", "in": "query", "schema": { "type": "string" }, "description": "Filter by bot slug (e.g. gptbot, claudebot, perplexitybot)" },
+          { "name": "company", "in": "query", "schema": { "type": "string" }, "description": "Filter by company (e.g. openai, anthropic, google)" },
+          { "name": "group_by", "in": "query", "schema": { "type": "string", "enum": ["bot", "company"], "default": "bot" } },
+          { "$ref": "#/components/parameters/Granularity" }
+        ],
+        "responses": {
+          "200": { "description": "Agent traffic data", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentTrafficResponse" } } } },
+          "403": { "$ref": "#/components/responses/PlanRequired" }
+        }
+      }
+    },
+
+    "/metrics/ai_traffic": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "AI referral traffic (Scale+)",
+        "description": "AI referral traffic for a project: human visits arriving from AI assistants (ChatGPT, Perplexity, Gemini, Claude, etc.), measured from the connected web analytics provider (Google Analytics 4, Adobe Analytics, PostHog, Plausible or Piano). Returns per-source users, sessions and conversions with totals and a conversion rate. Requires a connected provider and the Scale plan; otherwise returns ERR_AI_TRAFFIC_NOT_CONNECTED or ERR_PLAN_REQUIRED.",
+        "operationId": "getAiTraffic",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "name": "source", "in": "query", "schema": { "type": "string" }, "description": "Filter by a single AI source slug (e.g. chatgpt, perplexity, gemini, claude)" },
+          { "$ref": "#/components/parameters/Granularity" }
+        ],
+        "responses": {
+          "200": { "description": "AI referral traffic data" },
+          "403": { "$ref": "#/components/responses/PlanRequired" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
+    "/search_console/summary": {
+      "get": {
+        "tags": ["Search Console"],
+        "summary": "Search Console summary (Growth+)",
+        "description": "Google Search Console headline totals (impressions, clicks, ctr as a 0..1 fraction, average position) for the project over a date range. Pass dimension=country or dimension=device to also receive the breakdown aggregated over the range. Requires the project to have a connected Search Console property and the Growth plan or above; otherwise returns ERR_SEARCH_CONSOLE_NOT_CONNECTED or ERR_PLAN_REQUIRED.",
+        "operationId": "getSearchConsoleSummary",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "name": "dimension", "in": "query", "schema": { "type": "string", "enum": ["country", "device"] }, "description": "Optional breakdown aggregated over the range" }
+        ],
+        "responses": {
+          "200": { "description": "Search Console summary" },
+          "403": { "$ref": "#/components/responses/PlanRequired" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/search_console/timeseries": {
+      "get": {
+        "tags": ["Search Console"],
+        "summary": "Search Console time series (Growth+)",
+        "description": "Google Search Console property-wide series (impressions, clicks, ctr, position) bucketed by day, week or month. Requires a connected Search Console property (Growth+).",
+        "operationId": "getSearchConsoleTimeseries",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/Granularity" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": {
+          "200": { "description": "Search Console time series" },
+          "403": { "$ref": "#/components/responses/PlanRequired" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/search_console/queries": {
+      "get": {
+        "tags": ["Search Console"],
+        "summary": "Top Search Console queries (Growth+)",
+        "description": "Top Google Search Console search queries over a date range, ranked by impressions, clicks, ctr or position, paginated. Knowingly undercounts anonymized queries; for exact totals use /search_console/summary. Requires a connected Search Console property (Growth+).",
+        "operationId": "getSearchConsoleQueries",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["impressions", "clicks", "ctr", "position"], "default": "impressions" } },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": {
+          "200": { "description": "Top queries" },
+          "403": { "$ref": "#/components/responses/PlanRequired" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/search_console/pages": {
+      "get": {
+        "tags": ["Search Console"],
+        "summary": "Top Search Console pages (Growth+)",
+        "description": "Top Google Search Console landing pages over a date range, ranked by impressions, clicks, ctr or position, paginated. Requires a connected Search Console property (Growth+).",
+        "operationId": "getSearchConsolePages",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "$ref": "#/components/parameters/Range" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["impressions", "clicks", "ctr", "position"], "default": "impressions" } },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": {
+          "200": { "description": "Top pages" },
+          "403": { "$ref": "#/components/responses/PlanRequired" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
+    "/dimensions/projects": {
+      "get": { "tags": ["Dimensions"], "summary": "List projects", "operationId": "listProjects",
+        "description": "All projects accessible with your API key.",
+        "parameters": [{ "$ref": "#/components/parameters/Output" }],
+        "responses": { "200": { "description": "Projects", "content": { "application/json": { "schema": { "type": "object", "properties": { "projects": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } }, "request_id": { "type": "string" } } } } } } } }
+    },
+    "/dimensions/projects/{id}": {
+      "get": { "tags": ["Dimensions"], "summary": "Project details", "operationId": "getProjectDetails",
+        "description": "Detailed info for one project: matching_names, industry, business model, primary products, target audience, brand voice, locale, app store IDs, stats (incl. prompts_by_brand_kind counts) and data_coverage (models, countries and languages with data).",
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+        "responses": { "200": { "description": "Project details", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDetails" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/dimensions/competitors": {
+      "get": { "tags": ["Dimensions"], "summary": "List competitors", "operationId": "listCompetitors",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "name": "include_project_brand", "in": "query", "schema": { "type": "boolean", "default": false }, "description": "When true, prepends the project brand with actor_type=project and is_own=true" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+        "responses": { "200": { "description": "Competitors", "content": { "application/json": { "schema": { "type": "object", "properties": { "project_id": { "type": "integer" }, "competitors": { "type": "array", "items": { "$ref": "#/components/schemas/Competitor" } } } } } } } } }
+    },
+    "/dimensions/competitors/{id}": {
+      "get": { "tags": ["Dimensions"], "summary": "Competitor details", "operationId": "getCompetitorDetails",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Competitor details", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompetitorDetails" } } } } } }
+    },
+    "/dimensions/collections": { "get": { "tags": ["Dimensions"], "summary": "List tags/collections", "operationId": "listCollections", "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Output" } ], "responses": { "200": { "description": "Collections" } } } },
+    "/dimensions/tags": { "get": { "tags": ["Dimensions"], "summary": "List tags (alias for /collections)", "operationId": "listTags", "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Output" } ], "responses": { "200": { "description": "Tags" } } } },
+    "/dimensions/models": { "get": { "tags": ["Dimensions"], "summary": "List models with data", "operationId": "listModels", "parameters": [ { "$ref": "#/components/parameters/ProjectId" } ], "responses": { "200": { "description": "Models" } } } },
+    "/dimensions/locales": { "get": { "tags": ["Dimensions"], "summary": "List locales with data", "operationId": "listLocales", "parameters": [ { "$ref": "#/components/parameters/ProjectId" } ], "responses": { "200": { "description": "Locales" } } } },
+    "/dimensions/sentiments": { "get": { "tags": ["Dimensions"], "summary": "List sentiment categories", "operationId": "listSentimentCategories", "description": "Sentiment metric keys + labels + colors. For records, use /sentiments.", "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Output" } ], "responses": { "200": { "description": "Sentiment buckets" } } } },
+    "/dimensions/prompts": { "get": { "tags": ["Dimensions"], "summary": "List prompts", "operationId": "listPrompts",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" },
+        { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" },
+        { "$ref": "#/components/parameters/PromptType" }, { "$ref": "#/components/parameters/BrandKind" },
+        { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+      "responses": { "200": { "description": "Paginated prompts" } } } },
+    "/dimensions/prompt_executions": { "get": { "tags": ["Dimensions"], "summary": "List prompt executions", "operationId": "listPromptExecutions",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" },
+        { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" },
+        { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" },
+        { "$ref": "#/components/parameters/MentionFilter" }, { "$ref": "#/components/parameters/CitationFilter" }, { "$ref": "#/components/parameters/Competitors" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+      "responses": { "200": { "description": "Paginated executions" } } } },
+    "/dimensions/sources": { "get": { "tags": ["Dimensions"], "summary": "List source URLs", "operationId": "listSources",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" },
+        { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" },
+        { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" },
+        { "name": "source_type", "in": "query", "schema": { "type": "string", "enum": ["owned", "competitor", "third_party"] }, "description": "Filter by source ownership. Owned and competitor matching honor the project's exact-subdomain setting." },
+        { "$ref": "#/components/parameters/MentionFilter" }, { "$ref": "#/components/parameters/Competitors" },
+          { "$ref": "#/components/parameters/Output" }
+        ],
+      "responses": { "200": { "description": "Paginated sources" } } } },
+    "/dimensions/mentions": { "get": { "tags": ["Dimensions"], "summary": "List brand mentions", "operationId": "listMentions",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }, { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Output" } ],
+      "responses": { "200": { "description": "Paginated brand mentions" } } } },
+    "/dimensions/citations": { "get": { "tags": ["Dimensions"], "summary": "List brand citations", "description": "Includes visible citations and background source references. Background references use position 0, meaning no visible rank.", "operationId": "listCitations",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }, { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Output" } ],
+      "responses": { "200": { "description": "Paginated brand citations" } } } },
+    "/dimensions/competitor_mentions": { "get": { "tags": ["Dimensions"], "summary": "List competitor mentions", "operationId": "listCompetitorMentions",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Competitors" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }, { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Output" } ],
+      "responses": { "200": { "description": "Paginated competitor mentions" } } } },
+    "/dimensions/competitor_citations": { "get": { "tags": ["Dimensions"], "summary": "List competitor citations", "description": "Includes visible citations and background source references. Background references use position 0, meaning no visible rank.", "operationId": "listCompetitorCitations",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Competitors" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }, { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Output" } ],
+      "responses": { "200": { "description": "Paginated competitor citations" } } } },
+    "/dimensions/all_mentions": { "get": { "tags": ["Dimensions"], "summary": "List all mentions (brand + competitor)", "operationId": "listAllMentions",
+      "description": "Unified mentions stream. Each record has an `actor_type` field (`project` or `competitor`) so the same payload covers both.",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Competitors" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }, { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Output" } ],
+      "responses": { "200": { "description": "Paginated mentions with actor_type discriminator" } } } },
+    "/dimensions/all_citations": { "get": { "tags": ["Dimensions"], "summary": "List all citations (brand + competitor)", "operationId": "listAllCitations",
+      "description": "Unified citations stream with an `actor_type` field on each record. Includes visible citations and background source references; background references use position 0, meaning no visible rank.",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Competitors" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }, { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Output" } ],
+      "responses": { "200": { "description": "Paginated citations with actor_type discriminator" } } } },
+    "/dimensions/agent_bots": { "get": { "tags": ["Dimensions"], "summary": "AI bot catalog (Scale+)", "operationId": "listAgentBots",
+      "description": "Static catalog of AI bots that Agent Analytics can identify. Useful for rendering filter UIs that mirror our internal classification (slug, display name, company, category, Cloudflare verified-bot mapping, description). Requires the Scale plan; lower tiers receive ERR_PLAN_REQUIRED. The equivalent MCP tool list_agent_bots is available on all plans.",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Output" } ],
+      "responses": { "200": { "description": "Bot catalog", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentBotsResponse" } } } }, "403": { "$ref": "#/components/responses/PlanRequired" } } } },
+
+    "/citation_intelligence/groups": { "get": { "tags": ["Citation Intelligence"], "summary": "Grouped citation intelligence", "operationId": "listCitationGroups",
+      "description": "Grouped citation intelligence by url / domain / host with per-model breakdown, citation rate, and avg citation position. Counts and citation rate include visible citations and background source references. Average position ignores rows with position=0. Owned and competitor source matching honor the project's exact-subdomain setting. Filter vocabulary aligns with `source_type` returned by the API.",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" },
+        { "name": "view", "in": "query", "schema": { "type": "string", "enum": ["url", "domain", "host"], "default": "url" } },
+        { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" },
+        { "name": "order", "in": "query", "schema": { "type": "string", "enum": ["group_key", "total_responses", "total_citations", "citation_rate", "avg_citation_position", "first_seen_at", "last_seen_at"] } },
+        { "name": "direction", "in": "query", "schema": { "type": "string", "enum": ["asc", "desc"] } },
+        { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" },
+        { "name": "query", "in": "query", "schema": { "type": "string" } },
+        { "name": "source_type", "in": "query", "schema": { "type": "string", "enum": ["owned", "competitor", "third_party", "social_media", "own_domain", "ugc", "background"] } },
+        { "name": "sentiment", "in": "query", "schema": { "type": "string", "enum": ["negative"] } },
+        { "name": "content_gap", "in": "query", "schema": { "type": "string", "enum": ["mentioned", "gap"] } }
+      ],
+      "responses": { "200": { "description": "Grouped citation intelligence" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/citation_intelligence/mentions_by_domain": { "get": { "tags": ["Citation Intelligence"], "summary": "Mention share by citing domain", "operationId": "getMentionsByCitingDomain",
+      "description": "For the responses where each given source domain is cited, returns the share of those responses that mention the brand vs each competitor (brand + competitors sum to 100% per domain). Pass multiple domains to get the whole matrix in one call.",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" },
+        { "name": "domains", "in": "query", "required": true, "schema": { "type": "array", "items": { "type": "string" } }, "description": "Source domains to analyze, e.g. domains[]=gmac.com&domains[]=educaweb.com" },
+        { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/Prompt" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }
+      ],
+      "responses": { "200": { "description": "Mention share per citing domain" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/citation_intelligence/urls/{url_sha256}": { "get": { "tags": ["Citation Intelligence"], "summary": "Cited URL detail", "operationId": "getCitedUrlDetail",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/UrlSha256" } ],
+      "responses": { "200": { "description": "URL-level intelligence" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/citation_intelligence/urls/{url_sha256}/occurrences": { "get": { "tags": ["Citation Intelligence"], "summary": "Cited URL occurrences", "operationId": "listCitedUrlOccurrences",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/UrlSha256" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" } ],
+      "responses": { "200": { "description": "Paginated occurrences" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/citation_intelligence/urls/{url_sha256}/content": { "get": { "tags": ["Citation Intelligence"], "summary": "Cited URL cached content", "operationId": "getCitedUrlContent",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/UrlSha256" } ],
+      "responses": { "200": { "description": "Sanitized cached content + mention evidence" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+
+    "/reports/ai_model_insights/summary": { "get": { "tags": ["AI Model Insights"], "summary": "AI Model Insights summary", "operationId": "getAiModelInsightsSummary",
+      "description": "Per-model mentions, citations, brand net sentiment with raw counts, weighted visibility totals/shares, plus actor matrices. All actor entries use the standard shape `{ type, id, competitor_id, name, domain }` with bare (scheme-less) domains.",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Range" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Granularity" },
+        { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/PromptType" }, { "$ref": "#/components/parameters/BrandKind" }, { "$ref": "#/components/parameters/Competitors" }
+      ],
+      "responses": { "200": { "description": "Summary" } } } },
+    "/reports/ai_model_insights/position_distribution": { "get": { "tags": ["AI Model Insights"], "summary": "Position distribution comparison", "operationId": "getAiModelPositionDistribution",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Range" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Granularity" },
+        { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/PromptType" }, { "$ref": "#/components/parameters/BrandKind" }, { "$ref": "#/components/parameters/Model" },
+        { "name": "brand1", "in": "query", "schema": { "type": "integer" }, "description": "Competitor ID for the first comparison brand (omit to compare project brand)" },
+        { "name": "brand2", "in": "query", "schema": { "type": "integer" } }
+      ],
+      "responses": { "200": { "description": "Bucketed position totals + chart-ready series" } } } },
+    "/reports/ai_model_insights/ai_overview_results": { "get": { "tags": ["AI Model Insights"], "summary": "Google AI Overview result availability", "operationId": "getAiOverviewResults",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Range" }, { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Granularity" },
+        { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/PromptType" }, { "$ref": "#/components/parameters/BrandKind" },
+        { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }
+      ],
+      "responses": { "200": { "description": "AI Overview result-availability data + per-prompt table" } } } },
+
+    "/answers": { "get": { "tags": ["Answers"], "summary": "List AI responses", "operationId": "listAnswers",
+      "description": "Successful prompt-execution responses with truncated content (max 10,000 chars). Pass `query` for case-insensitive full-text search inside response texts: `total` becomes the exact count of matching responses and each item returns `snippet` + `match_count` instead of `response`/`response_truncated`.",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" }, { "$ref": "#/components/parameters/Prompt" },
+        { "$ref": "#/components/parameters/MentionFilter" }, { "$ref": "#/components/parameters/CitationFilter" }, { "$ref": "#/components/parameters/Competitors" },
+        { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" },
+        { "name": "query", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Case-insensitive full-text search inside AI response texts. Switches items to snippet + match_count mode." }
+      ],
+      "responses": { "200": { "description": "Paginated answers" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/answers/{id}": { "get": { "tags": ["Answers"], "summary": "Get one AI response", "operationId": "getAnswer",
+      "description": "Full answer with mentions, citations, sentiments, sources, shopping_products, brand_entities, fan_out_queries. Pass `include_source_page_details=true` to nest page-cache metadata under each source.",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" },
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+        { "name": "include_source_page_details", "in": "query", "schema": { "type": "boolean", "default": false } }
+      ],
+      "responses": { "200": { "description": "Answer details", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AnswerDetails" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+
+    "/sentiments": { "get": { "tags": ["Sentiments"], "summary": "List sentiment records", "operationId": "listSentimentRecords",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" },
+        { "name": "competitor_id", "in": "query", "schema": { "type": "integer" } },
+        { "name": "brand_only", "in": "query", "schema": { "type": "boolean" } },
+        { "name": "analysis", "in": "query", "schema": { "type": "string", "enum": ["very_positive", "positive", "neutral", "negative", "very_negative"] } },
+        { "$ref": "#/components/parameters/Model" }, { "$ref": "#/components/parameters/CollectionId" }, { "$ref": "#/components/parameters/CountryCode" }, { "$ref": "#/components/parameters/LanguageCode" },
+        { "$ref": "#/components/parameters/From" }, { "$ref": "#/components/parameters/To" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }
+      ],
+      "responses": { "200": { "description": "Paginated sentiments" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+
+    "/recommendations": { "get": { "tags": ["Recommendations"], "summary": "List recommendation runs", "operationId": "listRecommendations",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" },
+        { "name": "recommendation_type", "in": "query", "schema": { "type": "string", "enum": ["ai_visibility", "social_community", "brand_building", "sentiment_reputation"] } },
+        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] } },
+        { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }
+      ],
+      "responses": { "200": { "description": "Paginated recommendations" } } },
+      "post": { "tags": ["Recommendations"], "summary": "Launch a recommendations generation", "operationId": "launchRecommendations",
+        "description": "Launches a full-scope recommendations generation (async job, 1-3 minutes; poll GET /recommendations/{id} until status is completed). Consumes the project weekly recommendation-item budget: returns ERR_LIMIT_REACHED when it is exhausted or when a generation of the same type is already pending/processing. sentiment_reputation requires the Scale plan or above. Requires a `read_write` scope API key.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id"], "properties": {
+          "project_id": { "type": "integer" },
+          "recommendation_type": { "type": "string", "enum": ["ai_visibility", "social_community", "brand_building", "sentiment_reputation"], "default": "ai_visibility" }
+        } } } } },
+        "responses": { "201": { "description": "Generation launched (status pending)" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/recommendations/{id}": { "get": { "tags": ["Recommendations"], "summary": "Get recommendation run with items", "operationId": "getRecommendation",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" },
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+        { "name": "item_status", "in": "query", "schema": { "type": "string", "enum": ["active", "completed", "archived"] } },
+        { "name": "resolve_source_refs", "in": "query", "schema": { "type": "boolean", "default": true } }
+      ],
+      "responses": { "200": { "description": "Recommendation detail with items" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+
+    "/project_drafts": { "post": { "tags": ["Projects"], "summary": "Start a project draft (wizard step 1)", "operationId": "createProjectDraft",
+      "description": "Start the multi-step project-creation wizard. Returns a draft_id plus AI suggestions (name, description, industry, brand aliases) for the URL. Cold URLs can take up to ~2 minutes to analyze; pass suggest=false to skip AI and respond instantly. Drafts expire after 24h. Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["website_url", "main_country", "main_language"], "properties": { "website_url": { "type": "string", "format": "uri", "description": "Public HTTP(S) URL with a DNS hostname or public IP address. Credentials, private and special IP addresses, localhost and internal hostnames are rejected." }, "main_country": { "type": "string" }, "main_language": { "type": "string" }, "use_subdomain": { "type": "boolean", "default": false }, "suggest": { "type": "boolean", "default": true }, "execute_prompts_immediately": { "type": "boolean", "default": true } } } } } },
+      "responses": { "201": { "description": "Draft created; envelope with draft state, suggestions and limits" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" }, "403": { "$ref": "#/components/responses/InsufficientScope" } } } },
+    "/project_drafts/{id}": {
+      "get": { "tags": ["Projects"], "summary": "Read a project draft", "operationId": "getProjectDraft",
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Draft id (draft_...)" }, { "name": "include_suggestions", "in": "query", "schema": { "type": "boolean", "default": false }, "description": "Cache-only: returns suggestions for the current step if already generated, never triggers AI" } ],
+        "responses": { "200": { "description": "Draft envelope" }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "patch": { "tags": ["Projects"], "summary": "Submit a wizard step", "operationId": "updateProjectDraft",
+        "description": "Submit one step (details, prompts, competitors, owned_media). Strict forward gating: a step is only accepted when every previous step is complete (`ERR_DRAFT_STATE` otherwise); completed steps can be resubmitted. Responds with the updated draft plus AI suggestions for the next step.",
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["step"], "properties": { "step": { "type": "string", "enum": ["details", "prompts", "competitors", "owned_media"] }, "name": { "type": "string" }, "brand_name": { "type": "string" }, "description": { "type": "string" }, "industry": { "type": "array", "items": { "type": "string" } }, "matching_names": { "type": "array", "items": { "type": "string" } }, "external_identifier": { "type": "string" }, "prompts": { "type": "array", "items": { "type": "string" }, "maxItems": 100 }, "competitors": { "type": "array", "items": { "type": "object" } }, "youtube_channel_url": { "type": "string" }, "instagram_profile_url": { "type": "string" }, "facebook_page_url": { "type": "string" }, "tiktok_profile_url": { "type": "string" }, "app_store_url": { "type": "string" }, "google_play_url": { "type": "string" }, "suggest": { "type": "boolean", "default": true } } } } } },
+        "responses": { "200": { "description": "Draft envelope with next-step suggestions" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/project_drafts/{id}/finalize": { "post": { "tags": ["Projects"], "summary": "Finalize a draft into a real project", "operationId": "finalizeProjectDraft",
+      "description": "Creates the project with all accumulated draft data (same effects as POST /projects). Idempotent: finalizing an already-finalized draft returns 200 with the existing project. Optional overrides: weekly_email_subscribed, execute_prompts_immediately.",
+      "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ],
+      "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "weekly_email_subscribed": { "type": "boolean" }, "execute_prompts_immediately": { "type": "boolean" } } } } } },
+      "responses": { "201": { "description": "Project created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCreateResponse" } } } }, "200": { "description": "Idempotent replay" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/projects": { "post": { "tags": ["Projects"], "summary": "Create a project (fast mode)", "operationId": "createProject",
+      "description": "Create a complete project in one call: project fields, prompts (queued for execution and categorization), competitors, weekly email subscription. Idempotent via `external_identifier` (embed-enabled accounts only; replay returns 200 with the existing project). Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCreateRequest" } } } },
+      "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCreateResponse" } } } }, "200": { "description": "Idempotent replay (existing external_identifier)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCreateResponse" } } } }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/prompts": { "post": { "tags": ["Prompts"], "summary": "Bulk-create prompts", "operationId": "createPrompts",
+      "description": "Add prompts to a project in bulk (up to 100 per request). Validates the account prompt quota and skips duplicates. Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PromptsCreateRequest" } } } },
+      "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PromptsCreateResponse" } } } }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/prompts/{id}": { "delete": { "tags": ["Prompts"], "summary": "Delete a prompt", "operationId": "deletePrompt",
+      "description": "Deletes a prompt (irreversible). The prompt disappears immediately and frees a prompt slot; its historical data (executions, mentions, citations, sentiment) is purged by a background job. Requires a `read_write` scope API key.",
+      "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+      "responses": { "200": { "description": "Deleted" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+
+    "/prompts/assign_tags": { "post": { "tags": ["Prompts"], "summary": "Bulk-attach tags to prompts", "operationId": "assignPromptTags",
+      "description": "Idempotent bulk assignment of tags (Collections) to existing prompts. Tags can be resolved by id or by name (case-insensitive). Use `create_missing: true` to auto-create unknown tag names. Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id", "prompt_ids"], "properties": {
+        "project_id": { "type": "integer" },
+        "prompt_ids": { "type": "array", "items": { "type": "integer" } },
+        "tag_ids": { "type": "array", "items": { "type": "integer" } },
+        "tag_names": { "type": "array", "items": { "type": "string" } },
+        "create_missing": { "type": "boolean" }
+      } } } } },
+      "responses": { "200": { "description": "Tags attached" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+
+    "/competitors": { "post": { "tags": ["Competitors"], "summary": "Add a competitor", "operationId": "createCompetitor",
+      "description": "Adds a competitor (brand name + domain) to a project. Honours the per-plan max competitors cap. Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id", "brand_name", "domain"], "properties": {
+        "project_id": { "type": "integer" },
+        "brand_name": { "type": "string" },
+        "domain": { "type": "string", "description": "URL is accepted and normalised to host (e.g. https://www.openai.com → openai.com)" },
+        "matching_names": { "type": "array", "items": { "type": "string" } }
+      } } } } },
+      "responses": { "201": { "description": "Created" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/competitors/{id}": {
+      "patch": { "tags": ["Competitors"], "summary": "Update a competitor", "operationId": "updateCompetitor",
+        "description": "Updates brand_name, matching_names (full replacement list; the brand name is always included automatically) and/or color. The domain is immutable after creation. Name changes re-run mention/citation matching in the background: the competitor shows processing=true for a few minutes and further edits are rejected meanwhile. Requires a `read_write` scope API key.",
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id"], "properties": {
+          "project_id": { "type": "integer" },
+          "brand_name": { "type": "string" },
+          "matching_names": { "type": "array", "items": { "type": "string" } },
+          "color": { "type": "string", "description": "Hex color, e.g. #1a2b3c" }
+        } } } } },
+        "responses": { "200": { "description": "Updated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } },
+      "delete": { "tags": ["Competitors"], "summary": "Delete a competitor", "operationId": "deleteCompetitor",
+        "description": "Deletes a competitor (irreversible). It disappears immediately and frees a competitor slot; its tracked data is purged by a background job. Requires a `read_write` scope API key.",
+        "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+        "responses": { "200": { "description": "Deleted" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+
+    "/collections": { "post": { "tags": ["Collections"], "summary": "Create a tag", "operationId": "createCollection",
+      "description": "Creates a tag (Collection) in a project. Optional `prompt_ids` attaches existing prompts in the same call. Tag name must be unique per project (case-insensitive). Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id", "name"], "properties": {
+        "project_id": { "type": "integer" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "prompt_ids": { "type": "array", "items": { "type": "integer" } }
+      } } } } },
+      "responses": { "201": { "description": "Created" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/collections/{id}": {
+      "patch": { "tags": ["Collections"], "summary": "Update a tag", "operationId": "updateCollection",
+        "description": "Renames a tag/collection or changes its description. Prompt membership is managed via POST /prompts/assign_tags, not here. Requires a `read_write` scope API key.",
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id"], "properties": {
+          "project_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        } } } } },
+        "responses": { "200": { "description": "Updated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } },
+      "delete": { "tags": ["Collections"], "summary": "Delete a tag", "operationId": "deleteCollection",
+        "description": "Deletes a tag/collection. The prompts inside it are NOT deleted; only the grouping disappears. Requires a `read_write` scope API key.",
+        "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+        "responses": { "200": { "description": "Deleted" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+
+    "/annotations": {
+      "get": { "tags": ["Annotations"], "summary": "List timeline annotations", "operationId": "listAnnotations",
+        "description": "Lists the project timeline annotations (user-created + system), newest first. The category field tells them apart; editable says whether the requesting user may modify the row. Requires the **Growth** plan or above.",
+        "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } }, { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } }, { "name": "annotation_category_id", "in": "query", "schema": { "type": "integer" } }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" } ],
+        "responses": { "200": { "description": "Paginated annotations" }, "403": { "$ref": "#/components/responses/PlanRequired" } } },
+      "post": { "tags": ["Annotations"], "summary": "Create a timeline annotation", "operationId": "createAnnotation",
+      "description": "Marks a date in the project timeseries with a title + description. Requires the **Growth** plan or above. Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id", "title"], "properties": {
+        "project_id": { "type": "integer" },
+        "title": { "type": "string" },
+        "annotation_date": { "type": "string", "format": "date", "description": "ISO YYYY-MM-DD; defaults to today" },
+        "description": { "type": "string" },
+        "color": { "type": "string", "description": "Hex color, e.g. #2563eb" },
+        "annotation_category_id": { "type": "integer" }
+      } } } } },
+      "responses": { "201": { "description": "Created" }, "403": { "description": "Insufficient scope or plan required" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+    "/annotations/{id}": {
+      "patch": { "tags": ["Annotations"], "summary": "Update a timeline annotation", "operationId": "updateAnnotation",
+        "description": "Updates title, description, annotation_date, color and/or annotation_category_id. Only user-created annotations belonging to the requesting user can be updated (system annotations never). Requires the **Growth** plan or above and a `read_write` scope API key.",
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id"], "properties": {
+          "project_id": { "type": "integer" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "annotation_date": { "type": "string", "format": "date" },
+          "color": { "type": "string" },
+          "annotation_category_id": { "type": "integer" }
+        } } } } },
+        "responses": { "200": { "description": "Updated" }, "403": { "$ref": "#/components/responses/InsufficientPermission" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } },
+      "delete": { "tags": ["Annotations"], "summary": "Delete a timeline annotation", "operationId": "deleteAnnotation",
+        "description": "Deletes an annotation. Same ownership rule as PATCH. Requires the **Growth** plan or above and a `read_write` scope API key.",
+        "parameters": [ { "$ref": "#/components/parameters/ProjectId" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } } ],
+        "responses": { "200": { "description": "Deleted" }, "403": { "$ref": "#/components/responses/InsufficientPermission" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+
+    "/technical_geo_reports": { "post": { "tags": ["Reports"], "summary": "Run technical GEO analysis", "operationId": "createTechnicalGeoReports",
+      "description": "Launches the full technical GEO analysis bundle (crawlability, schema, content readiness, discoverability, site structure, robots.txt, llms.txt, AI visibility) for a URL + country. Each report runs in a background job. Requires a `read_write` scope API key.",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["project_id", "url"], "properties": {
+        "project_id": { "type": "integer" },
+        "url": { "type": "string" },
+        "country_code": { "type": "string", "description": "Defaults to the project country" }
+      } } } } },
+      "responses": { "201": { "description": "Created" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } } },
+
+    "/intelligence_tasks": {
+      "get": { "tags": ["GEO Writer"], "summary": "List GEO Writer tasks", "operationId": "listIntelligenceTasks",
+        "parameters": [
+          { "$ref": "#/components/parameters/ProjectId" },
+          { "name": "task_type", "in": "query", "schema": { "type": "string", "enum": ["brief", "create", "update", "pr_insights", "custom"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": { "200": { "description": "Paginated tasks" } } },
+      "post": { "tags": ["GEO Writer"], "summary": "Create a GEO Writer task", "operationId": "createIntelligenceTask",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntelligenceTaskCreateRequest" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntelligenceTask" } } } }, "422": { "$ref": "#/components/responses/UnprocessableEntity" } } }
+    },
+    "/intelligence_tasks/{id}": { "get": { "tags": ["GEO Writer"], "summary": "Get a GEO Writer task", "operationId": "getIntelligenceTask",
+      "parameters": [
+        { "$ref": "#/components/parameters/ProjectId" },
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Numeric task ID or public_id string token" }
+      ],
+      "responses": { "200": { "description": "Task with result_data when completed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntelligenceTask" } } } } } } },
+
+    "/webhooks": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "List webhook subscriptions",
+        "operationId": "listWebhooks",
+        "description": "Lists active webhook subscriptions for the account, optionally filtered by project. Requires the Scale plan or above.",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Optional project filter"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Max 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "type": "integer"
+                    },
+                    "per_page": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "project_id": {
+                            "type": "integer"
+                          },
+                          "event_type": {
+                            "type": "string",
+                            "enum": [
+                              "mention.created",
+                              "competitor_mention.created",
+                              "citation.created",
+                              "prompt_execution.completed",
+                              "sentiment.negative_detected",
+                              "recommendation.completed",
+                              "intelligence_task.completed"
+                            ]
+                          },
+                          "target_url": {
+                            "type": "string"
+                          },
+                          "disabled": {
+                            "type": "boolean"
+                          },
+                          "failure_count": {
+                            "type": "integer"
+                          },
+                          "last_delivered_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/PlanRequired"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Create a webhook subscription",
+        "operationId": "createWebhook",
+        "description": "Subscribes a public HTTPS URL to a project event. LLM Pulse POSTs a JSON envelope (`event`, `occurred_at`, `project_id`, `subscription_id`, `data`) to the URL every time the event occurs, signed via the `X-LLMPulse-Signature` header (HMAC-SHA256 of the raw body computed with the subscription secret). Failed deliveries are retried 5 times with backoff; subscriptions auto-disable after 20 consecutive failed deliveries. Idempotent for the same project + event + URL. Requires a `read_write` scope API key and the Scale plan or above.",
+        "responses": {
+          "201": {
+            "description": "Created. The signing secret is only returned by this endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "project_id": {
+                      "type": "integer"
+                    },
+                    "event_type": {
+                      "type": "string",
+                      "enum": [
+                        "mention.created",
+                        "competitor_mention.created",
+                        "citation.created",
+                        "prompt_execution.completed",
+                        "sentiment.negative_detected",
+                        "recommendation.completed",
+                        "intelligence_task.completed"
+                      ]
+                    },
+                    "target_url": {
+                      "type": "string"
+                    },
+                    "disabled": {
+                      "type": "boolean"
+                    },
+                    "failure_count": {
+                      "type": "integer"
+                    },
+                    "last_delivered_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "secret": {
+                      "type": "string",
+                      "description": "HMAC signing secret (whsec_...). Only returned on create."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "event_type",
+                  "target_url"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "integer"
+                  },
+                  "event_type": {
+                    "type": "string",
+                    "enum": [
+                      "mention.created",
+                      "competitor_mention.created",
+                      "citation.created",
+                      "prompt_execution.completed",
+                      "sentiment.negative_detected",
+                      "recommendation.completed",
+                      "intelligence_task.completed"
+                    ]
+                  },
+                  "target_url": {
+                    "type": "string",
+                    "description": "Public HTTPS URL that will receive signed event payloads"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/{id}": {
+      "delete": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Delete a webhook subscription",
+        "operationId": "deleteWebhook",
+        "description": "Deletes a webhook subscription; the target URL stops receiving events immediately. Requires a `read_write` scope API key and the Scale plan or above.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/webhooks/sample/{event_type}": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Sample event payloads",
+        "operationId": "sampleWebhookPayloads",
+        "description": "Returns up to 3 example event payloads for the event type, built from the project's most recent real data (or a static sample when the project has no data). Used by integration editors such as the Zapier sample loader. Requires the Scale plan or above.",
+        "parameters": [
+          {
+            "name": "event_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mention.created",
+                "competitor_mention.created",
+                "citation.created",
+                "prompt_execution.completed",
+                "sentiment.negative_detected",
+                "recommendation.completed",
+                "intelligence_task.completed"
+              ]
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "event_type": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "event": {
+                            "type": "string"
+                          },
+                          "occurred_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "project_id": {
+                            "type": "integer"
+                          },
+                          "subscription_id": {
+                            "type": "integer"
+                          },
+                          "data": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/PlanRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": { "tags": ["MCP"], "summary": "Model Context Protocol endpoint",
+        "description": "JSON-RPC 2.0 endpoint for AI clients using the Model Context Protocol. Available on every plan, including Starter, Growth and the free trial. Two auth options are accepted: (1) **OAuth 2.1 access token** issued via `/oauth/token` (recommended: clients discover the flow at `/.well-known/oauth-authorization-server` and Dynamic Client Registration is supported at `/oauth/register`); (2) **API key** in the `Authorization: Bearer` header (requires Scale plan or above, suitable for headless integrations). The server filters `tools/list` per user plan; calls to gated tools return `ERR_PLAN_REQUIRED`.",
+        "operationId": "handleMcpPost",
+        "security": [ { "BearerAuth": [] }, { "OAuth2": ["mcp:read", "mcp:write"] } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/McpRequest" } } } },
+        "responses": { "200": { "description": "JSON-RPC response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/McpResponse" } } } }, "202": { "description": "Notification accepted; empty response body" } } },
+      "get":  { "tags": ["MCP"], "summary": "MCP GET handshake", "operationId": "handleMcpGet",
+        "security": [ { "BearerAuth": [] }, { "OAuth2": ["mcp:read", "mcp:write"] } ],
+        "responses": { "200": { "description": "JSON-RPC response" } } }
+    },
+
+    "/oauth/authorize": {
+      "get": { "tags": ["OAuth"], "summary": "OAuth 2.1 authorization endpoint",
+        "description": "Renders a consent screen and on approval redirects back to the client with an authorization code. PKCE-S256 is required.",
+        "operationId": "oauthAuthorize",
+        "parameters": [
+          { "name": "response_type", "in": "query", "required": true, "schema": { "type": "string", "enum": ["code"] } },
+          { "name": "client_id", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "redirect_uri", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } },
+          { "name": "code_challenge", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "code_challenge_method", "in": "query", "required": true, "schema": { "type": "string", "enum": ["S256"] } },
+          { "name": "scope", "in": "query", "schema": { "type": "string" }, "description": "Space-separated scopes: mcp:read mcp:write" },
+          { "name": "state", "in": "query", "schema": { "type": "string" } },
+          { "name": "resource", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "302": { "description": "Redirect to client with code or error" }, "400": { "description": "Invalid request" } } }
+    },
+    "/oauth/token": {
+      "post": { "tags": ["OAuth"], "summary": "OAuth 2.1 token endpoint",
+        "description": "Exchanges an authorization code for an access + refresh token, or refreshes an access token. JWT access tokens and the reusable refresh token share a fixed one-year authorization deadline. Refresh responses return the same refresh token.",
+        "operationId": "oauthToken",
+        "requestBody": { "required": true, "content": { "application/x-www-form-urlencoded": { "schema": { "type": "object", "properties": { "grant_type": { "type": "string", "enum": ["authorization_code", "refresh_token"] }, "code": { "type": "string" }, "code_verifier": { "type": "string" }, "client_id": { "type": "string" }, "client_secret": { "type": "string" }, "redirect_uri": { "type": "string" }, "refresh_token": { "type": "string" }, "scope": { "type": "string", "description": "Optional. On refresh, must be a subset of the original grant." } }, "required": ["grant_type", "client_id"] } } } },
+        "responses": { "200": { "description": "Token response", "content": { "application/json": { "schema": { "type": "object", "properties": { "access_token": { "type": "string" }, "token_type": { "type": "string" }, "expires_in": { "type": "integer" }, "refresh_token": { "type": "string" }, "scope": { "type": "string" } } } } } }, "400": { "description": "Invalid grant or request" } } }
+    },
+    "/oauth/register": {
+      "post": { "tags": ["OAuth"], "summary": "Dynamic Client Registration (RFC 7591)",
+        "description": "Registers a new OAuth client. Rate-limited to 5/hour per IP. Only RFC 7591 fields are persisted. Redirect URIs must be https (any host) or http to loopback only.",
+        "operationId": "oauthRegister",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["redirect_uris"], "properties": { "redirect_uris": { "type": "array", "maxItems": 10, "items": { "type": "string", "format": "uri" } }, "client_name": { "type": "string", "maxLength": 200 }, "grant_types": { "type": "array", "items": { "type": "string", "enum": ["authorization_code", "refresh_token"] } }, "token_endpoint_auth_method": { "type": "string", "enum": ["none", "client_secret_post"] }, "scope": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Client registered", "content": { "application/json": { "schema": { "type": "object", "properties": { "client_id": { "type": "string" }, "client_id_issued_at": { "type": "integer" }, "client_name": { "type": "string" }, "redirect_uris": { "type": "array", "items": { "type": "string" } }, "grant_types": { "type": "array", "items": { "type": "string" } }, "token_endpoint_auth_method": { "type": "string" }, "scope": { "type": "string" } } } } } }, "400": { "description": "Invalid client metadata" } } }
+    },
+    "/oauth/jwks.json": {
+      "get": { "tags": ["OAuth"], "summary": "JWKS endpoint", "operationId": "oauthJwks",
+        "description": "Returns the JSON Web Key Set used to verify signatures on issued access tokens.",
+        "responses": { "200": { "description": "JWKS", "content": { "application/json": { "schema": { "type": "object", "properties": { "keys": { "type": "array", "items": { "type": "object" } } } } } } } } }
+    },
+    "/.well-known/oauth-authorization-server": {
+      "get": { "tags": ["OAuth"], "summary": "OAuth 2.1 server discovery (RFC 8414)", "operationId": "oauthDiscoveryAuthServer",
+        "responses": { "200": { "description": "Authorization server metadata", "content": { "application/json": { "schema": { "type": "object" } } } } } }
+    },
+    "/.well-known/oauth-protected-resource": {
+      "get": { "tags": ["OAuth"], "summary": "OAuth protected resource discovery (RFC 9728)", "operationId": "oauthDiscoveryProtectedResource",
+        "responses": { "200": { "description": "Protected resource metadata", "content": { "application/json": { "schema": { "type": "object" } } } } } }
+    }
+  },
+
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "description": "API key authentication. Keys start with `llmpulse_` and are managed at https://app.llmpulse.ai/app/api_keys (Scale plan or above). Used for the REST API and as a headless option for /mcp." },
+      "OAuth2": { "type": "oauth2", "description": "OAuth 2.1 with PKCE-S256 and Dynamic Client Registration. Accepted on /mcp only, available on every plan, including Starter, Growth and the free trial. Discovery metadata at /.well-known/oauth-authorization-server.", "flows": { "authorizationCode": { "authorizationUrl": "https://api.llmpulse.ai/oauth/authorize", "tokenUrl": "https://api.llmpulse.ai/oauth/token", "scopes": { "mcp:read": "Read data via MCP tools", "mcp:write": "Create resources via MCP write tools" } } } }
+    },
+    "parameters": {
+      "Output":        { "name": "output",         "in": "query", "schema": { "type": "string", "enum": ["flat", "csv"] }, "description": "Rectangular output for BI tools (Tableau, Excel, Sheets, ELT). Omit for the default nested JSON. 'flat' returns the same metadata plus 'columns' and 'rows'; 'csv' returns those rows as text/csv. Errors are always returned as JSON." },
+      "SovView":       { "name": "view",           "in": "query", "schema": { "type": "string", "enum": ["over_time", "current", "breakdown"], "default": "over_time" }, "description": "Which Share of Voice projection to flatten. Only valid together with 'output'. 'over_time' (default) is one row per date and actor, 'current' the ranked snapshot, 'breakdown' the Top 4 plus Others." },
+      "ProjectId":     { "name": "project_id",     "in": "query", "required": true,  "schema": { "type": "integer" }, "description": "Project ID" },
+      "Competitors":   { "name": "competitors",    "in": "query", "schema": { "type": "string" }, "description": "Comma-separated competitor IDs (unknown IDs return ERR_INVALID_PARAM)" },
+      "Page":          { "name": "page",           "in": "query", "schema": { "type": "integer", "default": 1, "minimum": 1 } },
+      "PerPage":       { "name": "per_page",       "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100, "minimum": 1 } },
+      "Metrics":       { "name": "metrics",        "in": "query", "schema": { "type": "string" }, "description": "Comma-separated list of metrics: mentions, citations, responses, mention_rate, visibility (alias for mention_rate), weighted_visibility, ai_visibility_score (alias for weighted_visibility), citation_rate, avg_position, avg_mention_position, net_sentiment, sentiment_very_positive, sentiment_positive, sentiment_neutral, sentiment_negative, sentiment_very_negative. Citations and citation_rate include visible citations and background source references; avg_position uses visible citations only." },
+      "Granularity":   { "name": "granularity",    "in": "query", "schema": { "type": "string", "enum": ["day", "week", "month"] } },
+      "Range":         { "name": "range",          "in": "query", "schema": { "type": "integer" }, "description": "Number of days to look back (alternative to from/to)" },
+      "From":          { "name": "from",           "in": "query", "schema": { "type": "string", "format": "date-time" } },
+      "To":            { "name": "to",             "in": "query", "schema": { "type": "string", "format": "date-time" } },
+      "Model":         { "name": "model",          "in": "query", "schema": { "type": "string", "enum": ["chatgpt", "perplexity", "gemini", "ai_overview", "ai_mode", "copilot", "claude", "grok", "deepseek", "meta_ai", "amazon_rufus"] }, "description": "Filter by AI model. Models the API key's user has not enabled are silently dropped." },
+      "CollectionId":  { "name": "collection_id",  "in": "query", "schema": { "type": "integer" } },
+      "CountryCode":   { "name": "country_code",   "in": "query", "schema": { "type": "string" }, "description": "ISO country code (e.g. US, GB, DE)" },
+      "LanguageCode":  { "name": "language_code",  "in": "query", "schema": { "type": "string" }, "description": "ISO language code (e.g. en, es, de)" },
+      "Prompt":        { "name": "prompt",         "in": "query", "schema": { "type": "integer" }, "description": "Filter by prompt ID" },
+      "PromptType":    { "name": "prompt_type",    "in": "query", "schema": { "type": "string", "enum": ["informational", "navigational", "commercial", "transactional"] }, "description": "Filter by prompt type (search intent)" },
+      "BrandKind":     { "name": "brand_kind",     "in": "query", "schema": { "type": "string", "enum": ["brand", "brand_other", "non_brand"] }, "description": "Filter by brand kind: brand (own brand/products), brand_other (competitors/other brands), non_brand (generic, no brand named). For fair 1:1 brand-vs-competitor comparisons (visibility, share of voice), use non_brand: brand-focused prompts skew results toward the brand they name. The in-app Overview page applies non_brand by default." },
+      "MentionFilter": { "name": "mention_filter",  "in": "query", "schema": { "type": "string", "enum": ["mentions_you", "not_mentions_you", "mentions_competitor", "not_mentions_competitor", "you_and_competitor", "competitor_not_you", "you_not_competitor", "no_brands"] }, "description": "Filter by which brands are mentioned, as a two-axis matrix (your brand x competitors): mentions_you / not_mentions_you, mentions_competitor / not_mentions_competitor, and the four combined cells you_and_competitor, competitor_not_you (a rival wins and you are absent), you_not_competitor, no_brands (no tracked brand appears, i.e. open space). Combine with 'competitors' to narrow the competitor side to specific rivals; on a negative cell that reads 'none of these'. On /dimensions/sources it applies to the crawled content of each cited page instead of the answer text. The legacy value 'competitors_only' is still accepted as an alias of competitor_not_you." },
+      "CitationFilter":{ "name": "citation_filter", "in": "query", "schema": { "type": "string", "enum": ["cites_you", "not_cites_you", "cites_competitor", "not_cites_competitor", "you_and_competitor", "competitor_not_you", "you_not_competitor", "cites_no_brands"] }, "description": "Same two-axis matrix applied to the domains cited in the answer instead of the brands named in it. Independent of mention_filter; pass both to intersect them (e.g. mentions_you + not_cites_you finds answers that talk about you without linking to you)." },
+      "IncludeProject":{ "name": "include_project","in": "query", "schema": { "type": "boolean", "default": true } },
+      "UrlSha256":     { "name": "url_sha256",     "in": "path",  "required": true,  "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "description": "64-character hex SHA-256 of the cited URL" }
+    },
+    "responses": {
+      "Unauthorized": { "description": "Authentication failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "ERR_MISSING_AUTH", "message": "Missing Authorization header" }, "request_id": "abc-123" } } } },
+      "NotFound":     { "description": "Resource not found",     "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "ERR_PROJECT_NOT_FOUND", "message": "Project not found or not accessible" }, "request_id": "abc-123" } } } },
+      "Forbidden":    { "description": "Access forbidden",       "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "ERR_REVOKED_API_KEY", "message": "API key has been revoked" }, "request_id": "abc-123" } } } },
+      "PlanRequired": { "description": "Endpoint requires a higher plan tier", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "ERR_PLAN_REQUIRED", "message": "This endpoint requires the Scale plan or above" }, "request_id": "abc-123" } } } },
+      "InsufficientScope": { "description": "API key lacks write permission", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "ERR_INSUFFICIENT_SCOPE", "message": "Insufficient scope: write required" }, "request_id": "abc-123" } } } },
+      "InsufficientPermission": { "description": "API key belongs to a team member whose permission matrix does not grant this feature", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "ERR_INSUFFICIENT_PERMISSION", "message": "Your team-member permissions do not allow this" }, "request_id": "abc-123" } } } },
+      "UnprocessableEntity": { "description": "Invalid parameters", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "ERR_INVALID_PARAM", "message": "Unknown metric: invalid_metric" }, "request_id": "abc-123" } } } }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string", "enum": ["ERR_MISSING_AUTH", "ERR_INVALID_API_KEY", "ERR_REVOKED_API_KEY", "ERR_INSUFFICIENT_SCOPE", "ERR_INSUFFICIENT_PERMISSION", "ERR_PLAN_REQUIRED", "ERR_ACCOUNT_INACTIVE", "ERR_DRAFT_NOT_FOUND", "ERR_DRAFT_STATE", "ERR_PROJECT_NOT_FOUND", "ERR_NOT_FOUND", "ERR_SEARCH_CONSOLE_NOT_CONNECTED", "ERR_AI_TRAFFIC_NOT_CONNECTED", "ERR_AGENT_TRAFFIC_NOT_CONNECTED", "ERR_INVALID_PARAM", "ERR_INVALID_RANGE", "ERR_LIMIT_REACHED", "ERR_QUOTA_EXCEEDED", "ERR_RATE_LIMITED"] },
+              "message": { "type": "string" },
+              "meta": { "type": "object" }
+            }
+          },
+          "request_id": { "type": "string" }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string", "description": "Internal project label (sidebar, settings, admin)" },
+          "brand_name": { "type": "string", "description": "LLM-facing brand label (used in prompts and customer-facing charts). Defaults to `name` when not set." }
+        }
+      },
+      "ProjectDetails": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Project" },
+          {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "format": "uri" },
+              "description": { "type": "string" },
+              "matching_names": { "type": "array", "items": { "type": "string" } },
+              "industry": { "type": "string" },
+              "business_model": { "type": "string" },
+              "primary_products": { "type": "string" },
+              "target_audience": { "type": "string" },
+              "brand_voice": { "type": "string" },
+              "country_code": { "type": "string" },
+              "language_code": { "type": "string" },
+              "paused": { "type": "boolean" },
+              "google_play_id": { "type": "string" },
+              "app_store_id": { "type": "string" },
+              "created_at": { "type": "string", "format": "date-time" },
+              "stats": { "type": "object", "properties": { "prompts_count": { "type": "integer" }, "competitors_count": { "type": "integer" }, "collections_count": { "type": "integer" } } }
+            }
+          }
+        ]
+      },
+      "Competitor": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "domain": { "type": "string" },
+          "actor_type": { "type": "string", "enum": ["project", "competitor"], "description": "Only present when include_project_brand=true" },
+          "is_own": { "type": "boolean", "description": "Only present when include_project_brand=true" }
+        }
+      },
+      "CompetitorDetails": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "project_id": { "type": "integer" },
+          "brand_name": { "type": "string" },
+          "domain": { "type": "string" },
+          "matching_names": { "type": "array", "items": { "type": "string" } },
+          "google_play_id": { "type": "string" },
+          "app_store_id": { "type": "string" },
+          "color": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Actor": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["project", "competitor"] },
+          "id": { "type": "integer" },
+          "competitor_id": { "type": "integer", "nullable": true },
+          "name": { "type": "string" },
+          "domain": { "type": "string", "description": "Bare (scheme-less) domain" }
+        }
+      },
+      "TimeseriesPoint": { "type": "object", "properties": { "date": { "type": "string", "format": "date-time" }, "value": { "type": "number" } } },
+      "TimeseriesSeries": {
+        "type": "object",
+        "properties": {
+          "actor": { "$ref": "#/components/schemas/Actor" },
+          "metric": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/TimeseriesPoint" } }
+        }
+      },
+      "TimeseriesResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "integer" },
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "granularity": { "type": "string" },
+          "filters": { "type": "object" },
+          "series": { "type": "object", "additionalProperties": { "type": "array", "items": { "$ref": "#/components/schemas/TimeseriesSeries" } } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "SummaryResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/TimeseriesResponse" },
+          {
+            "type": "object",
+            "properties": {
+              "summary": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "object", "properties": { "actor": { "$ref": "#/components/schemas/Actor" }, "total": { "type": "number" }, "min": { "type": "number" }, "max": { "type": "number" }, "last": { "type": "number" } } } } },
+              "position_distribution": { "type": "object", "properties": { "position_1_count": { "type": "integer" }, "position_2_count": { "type": "integer" }, "position_3_plus_count": { "type": "integer" }, "total_mentions": { "type": "integer" }, "percentages": { "type": "object" } } }
+            }
+          }
+        ]
+      },
+      "PromptSummaryRow": {
+        "type": "object",
+        "properties": {
+          "prompt_id": { "type": "integer" },
+          "prompt_text": { "type": "string" },
+          "model": { "type": "string", "description": "Only present when breakdown=model" },
+          "responses": { "type": "integer" },
+          "mentions": { "type": "integer" },
+          "citations": { "type": "integer" },
+          "visibility": { "type": "number" },
+          "mention_rate": { "type": "number" },
+          "citation_rate": { "type": "number" },
+          "avg_mention_position": { "type": "number", "nullable": true },
+          "avg_position": { "type": "number", "nullable": true }
+        }
+      },
+      "PromptSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "integer" },
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "filters": { "type": "object" },
+          "breakdown": { "type": "string", "nullable": true },
+          "sort": { "type": "string" },
+          "sort_dir": { "type": "string" },
+          "page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "total": { "type": "integer" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/PromptSummaryRow" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "SovResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "integer" },
+          "periods": { "type": "array", "description": "Per-bucket sample size and completeness: mentions is the total the shares were computed on (1-3 mentions produce the 100/50/33.33 low-sample patterns); partial marks buckets still collecting data or clipped by the requested window.", "items": { "type": "object", "properties": { "date": { "type": "string", "format": "date" }, "mentions": { "type": "integer" }, "partial": { "type": "boolean" } } } },
+          "over_time": { "type": "array", "items": { "type": "object", "properties": { "actor": { "$ref": "#/components/schemas/Actor" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/TimeseriesPoint" } } } } },
+          "current": { "type": "array", "items": { "type": "object", "properties": { "actor": { "$ref": "#/components/schemas/Actor" }, "share": { "type": "number" }, "previous_share": { "type": "number", "nullable": true, "description": "The actor's share in the last complete bucket before the current one; null without complete history." }, "avg_share": { "type": "number", "nullable": true, "description": "Mean share across complete buckets with data (partial buckets excluded); null without complete history." } } } },
+          "breakdown": { "type": "array", "items": { "type": "object", "properties": { "rank": { "type": "integer" }, "actor": { "$ref": "#/components/schemas/Actor" }, "share": { "type": "number" }, "others": { "type": "boolean" } } } },
+          "others": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "TopSourcesResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "integer" },
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "sort": { "type": "string" },
+          "page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "total": { "type": "integer" },
+          "data": { "type": "array", "items": { "type": "object", "properties": { "domain": { "type": "string" }, "total_responses": { "type": "integer" }, "avg_visibility": { "type": "number" }, "avg_mention_rate": { "type": "number" } } } }
+        }
+      },
+      "AgentTrafficResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "integer" },
+          "from": { "type": "string", "format": "date" },
+          "to": { "type": "string", "format": "date" },
+          "group_by": { "type": "string", "enum": ["bot", "company"] },
+          "granularity": { "type": "string", "enum": ["day", "week", "month"] },
+          "totals": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "timeseries": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "integer" } } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "AgentBot": {
+        "type": "object",
+        "properties": {
+          "slug": { "type": "string" },
+          "name": { "type": "string" },
+          "company": { "type": "string" },
+          "category": { "type": "string" },
+          "cf_verified_category": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      "AgentBotsResponse": {
+        "type": "object",
+        "properties": {
+          "bots": { "type": "array", "items": { "$ref": "#/components/schemas/AgentBot" } },
+          "companies": { "type": "array", "items": { "type": "string" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "AnswerDetails": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "prompt_id": { "type": "integer" },
+          "prompt_text": { "type": "string" },
+          "model": { "type": "string" },
+          "response": { "type": "string" },
+          "response_truncated": { "type": "boolean" },
+          "executed_at": { "type": "string", "format": "date-time" },
+          "duration_ms": { "type": "integer" },
+          "success": { "type": "boolean" },
+          "fan_out_queries": { "type": "array", "items": { "type": "string" } },
+          "mentions": { "type": "array", "items": { "type": "object" } },
+          "citations": { "type": "array", "items": { "type": "object" } },
+          "competitor_mentions": { "type": "array", "items": { "type": "object" } },
+          "competitor_citations": { "type": "array", "items": { "type": "object" } },
+          "sentiments": { "type": "array", "items": { "type": "object" } },
+          "sources": { "type": "array", "items": { "type": "object" } },
+          "shopping_products": { "type": "array", "items": { "type": "object" } },
+          "brand_entities": { "type": "array", "items": { "type": "object" } },
+          "local_businesses": { "type": "array", "items": { "type": "object" } },
+          "locale": { "type": "object", "properties": { "country_code": { "type": "string" }, "language_code": { "type": "string" } } }
+        }
+      },
+      "ProjectCreateRequest": {
+        "type": "object", "required": ["website_url", "name", "main_country", "main_language"],
+        "properties": {
+          "website_url": { "type": "string", "format": "uri", "description": "Public HTTP(S) URL with a DNS hostname or public IP address. Credentials, private and special IP addresses, localhost and internal hostnames are rejected.", "example": "https://acme.com" },
+          "name": { "type": "string", "example": "Acme" },
+          "main_country": { "type": "string", "example": "US" },
+          "main_language": { "type": "string", "example": "en" },
+          "brand_name": { "type": "string" }, "description": { "type": "string" },
+          "industry": { "type": "array", "items": { "type": "string" }, "example": ["SAAS"] },
+          "matching_names": { "type": "array", "items": { "type": "string" } },
+          "prompts": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+          "competitors": { "type": "array", "items": { "type": "object", "required": ["domain"], "properties": { "domain": { "type": "string" }, "brand_name": { "type": "string" }, "matching_names": { "type": "array", "items": { "type": "string" } } } } },
+          "owned_media": { "type": "object", "description": "Requires Growth plan or above", "properties": { "youtube_channel_url": { "type": "string" }, "instagram_profile_url": { "type": "string" }, "facebook_page_url": { "type": "string" }, "tiktok_profile_url": { "type": "string" }, "app_store_url": { "type": "string" }, "google_play_url": { "type": "string" } } },
+          "use_subdomain": { "type": "boolean", "default": false },
+          "weekly_email_subscribed": { "type": "boolean", "default": false },
+          "external_identifier": { "type": "string", "pattern": "^[a-z0-9_-]{1,64}$", "description": "Embed-enabled (Enterprise) accounts only; other accounts receive ERR_PLAN_REQUIRED. Idempotency key and embed-session join key, unique per account" },
+          "execute_prompts_immediately": { "type": "boolean", "default": true }
+        }
+      },
+      "ProjectCreateResponse": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "object", "description": "Same shape as GET /dimensions/projects/{id}" },
+          "prompts": { "type": "object", "properties": { "created": { "type": "integer" }, "skipped": { "type": "integer" }, "execution": { "type": "string", "enum": ["immediate", "deferred_to_next_scheduled_run"] } } },
+          "competitors": { "type": "object", "properties": { "created": { "type": "integer" }, "processing": { "type": "boolean", "description": "Always false; competitors are ready when the project transaction commits.", "example": false } } },
+          "email_subscription": { "type": "object", "properties": { "weekly_email_subscribed": { "type": "boolean" } } },
+          "limits": { "type": "object", "properties": { "projects_remaining": { "type": "integer", "nullable": true }, "prompts_available": { "type": "integer", "nullable": true }, "competitors_remaining": { "type": "integer", "nullable": true } } },
+          "idempotent": { "type": "boolean", "description": "Present and true only on external_identifier replays" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "PromptsCreateRequest": {
+        "type": "object",
+        "required": ["project_id", "prompts", "country_code", "language_code"],
+        "properties": {
+          "project_id": { "type": "integer" },
+          "prompts": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+          "country_code": { "type": "string" },
+          "language_code": { "type": "string" }
+        }
+      },
+      "PromptsCreateResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "integer" },
+          "created": { "type": "integer" },
+          "skipped": { "type": "integer" },
+          "total_after": { "type": "integer" },
+          "prompts_available": { "type": "integer" },
+          "data": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "raw_input": { "type": "string" }, "status": { "type": "string", "enum": ["created", "exists"] } } } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "IntelligenceTaskCreateRequest": {
+        "type": "object",
+        "required": ["project_id", "task_type"],
+        "properties": {
+          "project_id": { "type": "integer" },
+          "task_type": { "type": "string", "enum": ["brief", "create", "update", "pr_insights", "custom"] },
+          "prompt_id": { "type": "integer" },
+          "custom_topic": { "type": "string" },
+          "user_instructions": { "type": "string" },
+          "output_language_code": { "type": "string" },
+          "existing_content": { "type": "string" },
+          "existing_content_url": { "type": "string", "format": "uri" }
+        }
+      },
+      "IntelligenceTask": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "public_id": { "type": "string" },
+          "project_id": { "type": "integer" },
+          "task_type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "string" },
+          "prompt_id": { "type": "integer", "nullable": true },
+          "prompt_text": { "type": "string", "nullable": true },
+          "agentic_mode": { "type": "boolean" },
+          "custom_topic": { "type": "string", "nullable": true },
+          "user_instructions": { "type": "string", "nullable": true },
+          "output_language_code": { "type": "string", "nullable": true },
+          "word_count": { "type": "integer", "nullable": true },
+          "result_data": { "type": "object", "description": "Only present when status='completed'" },
+          "error_message": { "type": "string", "nullable": true },
+          "estimated_time": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "processed_at": { "type": "string", "nullable": true, "format": "date-time" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "McpRequest": {
+        "type": "object",
+        "properties": {
+          "jsonrpc": { "type": "string", "enum": ["2.0"] },
+          "id": { "oneOf": [ { "type": "string" }, { "type": "integer" } ] },
+          "method": { "type": "string", "description": "MCP method (initialize, tools/list, tools/call, etc.)" },
+          "params": { "type": "object" }
+        }
+      },
+      "McpResponse": {
+        "type": "object",
+        "properties": {
+          "jsonrpc": { "type": "string" },
+          "id": { "oneOf": [ { "type": "string" }, { "type": "integer" } ] },
+          "result": { "type": "object" },
+          "error": { "type": "object" }
+        }
+      }
+    }
+  }
+}
