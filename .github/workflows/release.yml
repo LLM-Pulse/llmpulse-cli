@@ -64,4 +64,5 @@ jobs:
           merge-multiple: true
       - env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: gh release create "${GITHUB_REF_NAME}" artifacts/* --generate-notes --verify-tag
