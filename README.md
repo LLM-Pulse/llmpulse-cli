@@ -23,7 +23,7 @@ Each release includes archives for macOS on Intel and Apple silicon, Linux on x8
 
 ## Set up the CLI
 
-Get an API key from the [LLM Pulse dashboard](https://llmpulse.ai/app/api-keys), then run:
+Get an API key from the [LLM Pulse dashboard](https://llmpulse.ai/app/api_keys), then run:
 
 ```bash
 llmpulse login
