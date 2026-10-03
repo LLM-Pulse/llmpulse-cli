@@ -107,7 +107,7 @@ fn reports_the_rust_cli_version() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
-        "llmpulse 2.0.0"
+        "llmpulse 2.1.0"
     );
 }
 
@@ -159,6 +159,100 @@ fn creates_prompts_with_a_json_body() {
     assert_eq!(
         body["prompts"],
         serde_json::json!(["best crm", "top crm tools"])
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn edits_llms_txt_report_content_with_a_json_body() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"id":7,"changed_files":["llms_txt"]}"#);
+    let output = run(
+        &base_url,
+        &[
+            "reports",
+            "technical-geo-update-content",
+            "7",
+            "--report-type",
+            "llms_txt",
+            "--content-version",
+            "1790683200",
+            "--edits",
+            r##"{"llms_txt":"# example.com\n"}"##,
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "PATCH");
+    assert_eq!(request.path, "/api/v1/technical_geo_reports/7/content");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(body["project_id"], 42);
+    assert_eq!(body["report_type"], "llms_txt");
+    assert_eq!(body["content_version"], "1790683200");
+    assert_eq!(
+        body["edits"],
+        serde_json::json!({ "llms_txt": "# example.com\n" })
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn rejects_llms_txt_edits_that_are_not_a_json_object() {
+    let output = run(
+        "http://127.0.0.1:9/api/v1",
+        &[
+            "reports",
+            "technical-geo-update-content",
+            "7",
+            "--report-type",
+            "llms_txt",
+            "--content-version",
+            "1790683200",
+            "--edits",
+            r#"["llms_txt"]"#,
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--edits must be a JSON object"));
+}
+
+#[test]
+fn reverts_llms_txt_report_content() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"id":7}"#);
+    let output = run(
+        &base_url,
+        &[
+            "reports",
+            "technical-geo-revert-content",
+            "7",
+            "--report-type",
+            "llms_txt",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "POST");
+    assert_eq!(
+        request.path,
+        "/api/v1/technical_geo_reports/7/revert_content"
+    );
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({ "project_id": 42, "report_type": "llms_txt" })
     );
     handle.join().unwrap();
 }

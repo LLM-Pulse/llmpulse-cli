@@ -91,7 +91,7 @@ pub enum Command {
         #[command(subcommand)]
         command: RecommendationsCommand,
     },
-    /// List, inspect, and create GEO Writer tasks.
+    /// List, inspect, create, edit, and revert GEO Writer tasks.
     IntelligenceTasks {
         #[command(subcommand)]
         command: IntelligenceTasksCommand,
@@ -121,7 +121,7 @@ pub enum Command {
         #[command(subcommand)]
         command: AnnotationsCommand,
     },
-    /// Queue analysis reports.
+    /// Queue, list, and inspect technical GEO reports, and edit or revert llms.txt report files.
     Reports {
         #[command(subcommand)]
         command: ReportsCommand,
@@ -130,6 +130,18 @@ pub enum Command {
     Webhooks {
         #[command(subcommand)]
         command: WebhooksCommand,
+    },
+    /// Show plan, quota usage, and rate limits for the account.
+    Account,
+    /// List and inspect reputation reports.
+    Reputation {
+        #[command(subcommand)]
+        command: ReputationCommand,
+    },
+    /// List and inspect custom AI studies.
+    Studies {
+        #[command(subcommand)]
+        command: StudiesCommand,
     },
     /// Compare two adjacent date ranges.
     Diff(DiffArgs),
@@ -168,14 +180,19 @@ pub struct DateArgs {
 pub struct FilterArgs {
     #[arg(long)]
     pub model: Option<String>,
+    /// One collection/tag ID, or a comma-separated list.
     #[arg(long)]
-    pub collection_id: Option<u64>,
+    pub collection_id: Option<String>,
     #[arg(long)]
     pub country_code: Option<String>,
     #[arg(long)]
     pub language_code: Option<String>,
     #[arg(long)]
     pub prompt: Option<u64>,
+    #[arg(long)]
+    pub prompt_type: Option<String>,
+    #[arg(long)]
+    pub brand_kind: Option<String>,
     #[command(flatten)]
     pub dates: DateArgs,
 }
@@ -188,6 +205,34 @@ pub struct DimensionListArgs {
     pub competitors: Vec<u64>,
     #[arg(long)]
     pub include_project_brand: bool,
+    /// Which slice of the resource to list (shopping, ads, owned media, Reddit).
+    #[arg(long)]
+    pub view: Option<String>,
+    #[arg(long)]
+    pub order: Option<String>,
+    #[arg(long)]
+    pub direction: Option<String>,
+    #[arg(long)]
+    pub query: Option<String>,
+    /// Restrict to your own properties (shopping, ads, owned media, Reddit).
+    #[arg(long)]
+    pub owned: bool,
+    /// Owned media provider: youtube, instagram, facebook, tiktok, linkedin, mobile_apps.
+    #[arg(long)]
+    pub provider: Option<String>,
+    /// Mobile app store: google_play or app_store.
+    #[arg(long)]
+    pub store: Option<String>,
+    #[arg(long)]
+    pub subreddit: Option<String>,
+    #[arg(long)]
+    pub author: Option<String>,
+    /// Reddit thread status: open or archived.
+    #[arg(long)]
+    pub status: Option<String>,
+    /// Brand name, as Reddit reports it.
+    #[arg(long)]
+    pub brand: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -215,6 +260,36 @@ pub enum DimensionsCommand {
     AllMentions(DimensionListArgs),
     AllCitations(DimensionListArgs),
     AgentBots,
+    Shopping(DimensionListArgs),
+    Ads(DimensionListArgs),
+    LocalBusinesses(DimensionListArgs),
+    OwnedMedia(DimensionListArgs),
+    Reddit(DimensionListArgs),
+    QueryFanOuts(DimensionListArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ReputationCommand {
+    List(Box<DimensionListArgs>),
+    Get { id: u64 },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StudiesCommand {
+    List(Box<DimensionListArgs>),
+    Get {
+        id: u64,
+    },
+    Report {
+        id: u64,
+        report_id: u64,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        subject: Option<String>,
+        #[arg(long)]
+        dimension: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -225,7 +300,7 @@ pub enum ProjectsDimensionCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum CompetitorsDimensionCommand {
-    List(DimensionListArgs),
+    List(Box<DimensionListArgs>),
     Get { id: u64 },
 }
 
@@ -329,6 +404,18 @@ pub struct SearchConsoleArgs {
     pub granularity: Option<String>,
     #[arg(long)]
     pub sort: Option<String>,
+    /// Search surface: web (default), image, video, news, discover, googleNews.
+    #[arg(long)]
+    pub search_type: Option<String>,
+    /// final (default) counts only finalized rows; all includes the most recent days.
+    #[arg(long)]
+    pub data_state: Option<String>,
+    /// JSON array of {dimension, operator, expression}, combined with AND.
+    #[arg(long)]
+    pub filters: Option<String>,
+    /// Maximum breakdown rows on summary.
+    #[arg(long)]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -389,9 +476,28 @@ pub enum CitationsCommand {
     },
 }
 
+#[derive(Debug, Args)]
+pub struct AnswerListArgs {
+    #[command(flatten)]
+    pub filters: FilterArgs,
+    #[arg(long, value_delimiter = ',')]
+    pub competitors: Vec<u64>,
+    #[arg(long)]
+    pub query: Option<String>,
+    /// mentions_you, not_mentions_you, mentions_competitor, you_and_competitor, no_brands, and so on.
+    #[arg(long)]
+    pub mention_filter: Option<String>,
+    /// cites_you, not_cites_you, cites_competitor, you_and_competitor, cites_no_brands, and so on.
+    #[arg(long)]
+    pub citation_filter: Option<String>,
+    /// Only answers where the model returned no result.
+    #[arg(long)]
+    pub no_result: bool,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum AnswersCommand {
-    List(FilterArgs),
+    List(Box<AnswerListArgs>),
     Get {
         id: String,
         #[arg(long)]
@@ -449,6 +555,14 @@ pub enum IntelligenceTasksCommand {
         id: String,
     },
     Create(IntelligenceTaskCreateArgs),
+    Update {
+        id: String,
+        #[arg(long)]
+        edits: String,
+    },
+    Revert {
+        id: String,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -537,6 +651,7 @@ pub struct CompetitorUpdateArgs {
 #[derive(Debug, Subcommand)]
 pub enum ProjectsCommand {
     Create(ProjectCreateArgs),
+    Update(ProjectUpdateArgs),
     DraftStart(ProjectDraftStartArgs),
     DraftGet {
         id: String,
@@ -580,9 +695,42 @@ pub struct ProjectCreateArgs {
     #[arg(long, value_delimiter = ',')]
     pub competitors: Vec<String>,
     #[arg(long)]
+    pub business_model: Option<String>,
+    #[arg(long)]
+    pub target_audience: Option<String>,
+    #[arg(long)]
+    pub brand_voice: Option<String>,
+    #[arg(long)]
+    pub goals: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub primary_products: Vec<String>,
+    #[arg(long)]
     pub external_identifier: Option<String>,
     #[arg(long)]
     pub defer_execution: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ProjectUpdateArgs {
+    pub id: u64,
+    #[arg(long)]
+    pub brand_name: Option<String>,
+    #[arg(long)]
+    pub description: Option<String>,
+    #[arg(long)]
+    pub industry: Option<String>,
+    #[arg(long)]
+    pub business_model: Option<String>,
+    #[arg(long)]
+    pub target_audience: Option<String>,
+    #[arg(long)]
+    pub brand_voice: Option<String>,
+    #[arg(long)]
+    pub goals: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub primary_products: Vec<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub matching_names: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -685,6 +833,37 @@ pub enum ReportsCommand {
         url: String,
         #[arg(long)]
         country_code: Option<String>,
+        #[arg(long)]
+        output_language_code: Option<String>,
+    },
+    TechnicalGeoList {
+        #[arg(long)]
+        report_type: String,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        batch_id: Option<u64>,
+    },
+    TechnicalGeoGet {
+        id: u64,
+        #[arg(long)]
+        report_type: String,
+    },
+    TechnicalGeoUpdateContent {
+        id: u64,
+        #[arg(long)]
+        report_type: String,
+        /// result_data.content_version of the report as last read.
+        #[arg(long)]
+        content_version: String,
+        /// JSON object mapping llms_txt and/or llms_full_txt to the full replacement text.
+        #[arg(long)]
+        edits: String,
+    },
+    TechnicalGeoRevertContent {
+        id: u64,
+        #[arg(long)]
+        report_type: String,
     },
 }
 

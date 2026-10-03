@@ -9,7 +9,7 @@ Download the archive for your platform from [GitHub Releases](https://github.com
 To install from source with Cargo:
 
 ```bash
-cargo install --git https://github.com/LLM-Pulse/llmpulse-cli --tag v2.0.0 --locked
+cargo install --git https://github.com/LLM-Pulse/llmpulse-cli --tag v2.1.0 --locked
 ```
 
 You can also run the container locally:
@@ -71,7 +71,7 @@ llmpulse webhooks create \
 | `intelligence-tasks` | GEO Writer tasks |
 | `projects`, `prompts`, `competitors`, `collections` | Project setup and resource management |
 | `annotations` | Timeline annotation management |
-| `reports` | Technical GEO report creation |
+| `reports` | Technical GEO reports: create, list, and inspect them, and edit or revert llms.txt files |
 | `webhooks` | Subscriptions and sample payloads |
 | `export` | Full JSON and CSV exports |
 | `api` | Direct access to any REST path |

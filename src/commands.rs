@@ -188,6 +188,13 @@ async fn run_api_command(client: &ApiClient, global: &GlobalArgs, command: Comma
         Command::Annotations { command } => run_annotations(client, global, command).await,
         Command::Reports { command } => run_reports(client, global, command).await,
         Command::Webhooks { command } => run_webhooks(client, global, command).await,
+        Command::Account => print_response(
+            client.get("/account", &Vec::new()).await?,
+            global.output,
+            false,
+        ),
+        Command::Reputation { command } => run_reputation(client, global, command).await,
+        Command::Studies { command } => run_studies(client, global, command).await,
         Command::Diff(args) => run_diff(client, global, args).await,
         Command::Report(args) => run_report(client, global, args).await,
         Command::Watch(args) => run_watch(client, global, args).await,
@@ -214,10 +221,12 @@ fn add_dates(query: &mut Query, dates: &DateArgs, include_range: bool) {
 
 fn add_filters(query: &mut Query, filters: &FilterArgs, include_range: bool) {
     query.push_opt("model", filters.model.as_deref());
-    query.push_opt("collection_id", filters.collection_id);
+    query.push_opt("collection_id", filters.collection_id.as_deref());
     query.push_opt("country_code", filters.country_code.as_deref());
     query.push_opt("language_code", filters.language_code.as_deref());
     query.push_opt("prompt", filters.prompt);
+    query.push_opt("prompt_type", filters.prompt_type.as_deref());
+    query.push_opt("brand_kind", filters.brand_kind.as_deref());
     add_dates(query, &filters.dates, include_range);
 }
 
@@ -341,7 +350,7 @@ async fn run_dimensions(
         },
         DimensionsCommand::Competitors { command } => match command {
             CompetitorsDimensionCommand::List(args) => {
-                dimension_list(client, global, "/dimensions/competitors", args).await
+                dimension_list(client, global, "/dimensions/competitors", *args).await
             }
             CompetitorsDimensionCommand::Get { id } => print_response(
                 client
@@ -398,6 +407,24 @@ async fn run_dimensions(
             global.output,
             false,
         ),
+        DimensionsCommand::Shopping(args) => {
+            dimension_list(client, global, "/dimensions/shopping", args).await
+        }
+        DimensionsCommand::Ads(args) => {
+            dimension_list(client, global, "/dimensions/ads", args).await
+        }
+        DimensionsCommand::LocalBusinesses(args) => {
+            dimension_list(client, global, "/dimensions/local_businesses", args).await
+        }
+        DimensionsCommand::OwnedMedia(args) => {
+            dimension_list(client, global, "/dimensions/owned_media", args).await
+        }
+        DimensionsCommand::Reddit(args) => {
+            dimension_list(client, global, "/dimensions/reddit", args).await
+        }
+        DimensionsCommand::QueryFanOuts(args) => {
+            dimension_list(client, global, "/dimensions/query_fan_outs", args).await
+        }
     }
 }
 
@@ -411,7 +438,79 @@ async fn dimension_list(
     add_filters(&mut query, &args.filters, false);
     add_csv_values(&mut query, "competitors", &args.competitors);
     query.push_bool("include_project_brand", args.include_project_brand);
+    // Only the shopping, ads, local business, owned-media and Reddit lists read these; the
+    // others ignore what is absent, exactly as include_project_brand already
+    // does, so one shared struct stays cheaper than five near-identical ones.
+    query.push_opt("view", args.view.as_deref());
+    query.push_opt("order", args.order.as_deref());
+    query.push_opt("direction", args.direction.as_deref());
+    query.push_opt("query", args.query.as_deref());
+    query.push_bool("owned", args.owned);
+    query.push_opt("provider", args.provider.as_deref());
+    query.push_opt("store", args.store.as_deref());
+    query.push_opt("subreddit", args.subreddit.as_deref());
+    query.push_opt("author", args.author.as_deref());
+    query.push_opt("status", args.status.as_deref());
+    query.push_opt("brand", args.brand.as_deref());
     list_get(client, global, path, query).await
+}
+
+async fn run_reputation(
+    client: &ApiClient,
+    global: &GlobalArgs,
+    command: ReputationCommand,
+) -> Result<()> {
+    match command {
+        ReputationCommand::List(args) => {
+            dimension_list(client, global, "/reputation/reports", *args).await
+        }
+        ReputationCommand::Get { id } => print_response(
+            client
+                .get(
+                    &format!("/reputation/reports/{id}"),
+                    &project_query(client)?,
+                )
+                .await?,
+            global.output,
+            false,
+        ),
+    }
+}
+
+async fn run_studies(
+    client: &ApiClient,
+    global: &GlobalArgs,
+    command: StudiesCommand,
+) -> Result<()> {
+    match command {
+        StudiesCommand::List(args) => dimension_list(client, global, "/studies", *args).await,
+        StudiesCommand::Get { id } => print_response(
+            client
+                .get(&format!("/studies/{id}"), &project_query(client)?)
+                .await?,
+            global.output,
+            false,
+        ),
+        StudiesCommand::Report {
+            id,
+            report_id,
+            model,
+            subject,
+            dimension,
+        } => {
+            let mut query = project_query(client)?;
+            query.push_opt("model", model);
+            query.push_opt("subject", subject);
+            query.push_opt("dimension", dimension);
+            print_response(
+                client
+                    .get(&format!("/studies/{id}/reports/{report_id}"), &query)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+    }
 }
 
 async fn run_metrics(
@@ -559,6 +658,11 @@ async fn run_search_console(
     query.push_opt("dimension", args.dimension);
     query.push_opt("granularity", args.granularity);
     query.push_opt("sort", args.sort);
+    query.push_opt("search_type", args.search_type);
+    query.push_opt("data_state", args.data_state);
+    // One JSON value, which is how the API takes an array of objects.
+    query.push_opt("filters", args.filters);
+    query.push_opt("limit", args.limit);
     if list {
         list_get(client, global, path, query).await
     } else {
@@ -651,9 +755,14 @@ async fn run_answers(
     command: AnswersCommand,
 ) -> Result<()> {
     match command {
-        AnswersCommand::List(filters) => {
+        AnswersCommand::List(args) => {
             let mut query = project_query(client)?;
-            add_filters(&mut query, &filters, false);
+            add_filters(&mut query, &args.filters, false);
+            add_csv_values(&mut query, "competitors", &args.competitors);
+            query.push_opt("query", args.query.as_deref());
+            query.push_opt("mention_filter", args.mention_filter.as_deref());
+            query.push_opt("citation_filter", args.citation_filter.as_deref());
+            query.push_bool("no_result", args.no_result);
             list_get(client, global, "/answers", query).await
         }
         AnswersCommand::Get {
@@ -774,6 +883,29 @@ async fn run_intelligence_tasks(
                 false,
             )
         }
+        IntelligenceTasksCommand::Update { id, edits } => {
+            let body = json!({
+                "project_id": client.project_id()?,
+                "edits": edits_object(&edits)?,
+            });
+            print_response(
+                client
+                    .patch(&format!("/intelligence_tasks/{id}"), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        IntelligenceTasksCommand::Revert { id } => {
+            let body = json!({ "project_id": client.project_id()? });
+            print_response(
+                client
+                    .post(&format!("/intelligence_tasks/{id}/revert"), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
     }
 }
 
@@ -884,6 +1016,11 @@ async fn run_projects(
                 "brand_name": args.brand_name,
                 "description": args.description,
                 "industry": optional_vec(&args.industry),
+                "business_model": args.business_model,
+                "target_audience": args.target_audience,
+                "brand_voice": args.brand_voice,
+                "goals": args.goals,
+                "primary_products": optional_vec(&args.primary_products),
                 "matching_names": optional_vec(&args.matching_names),
                 "prompts": optional_vec(&args.prompts),
                 "competitors": optional_vec(&args.competitors),
@@ -891,6 +1028,31 @@ async fn run_projects(
                 "execute_prompts_immediately": !args.defer_execution,
             }));
             print_response(client.post("/projects", body).await?, global.output, false)
+        }
+        ProjectsCommand::Update(args) => {
+            let body = compact_object(json!({
+                "brand_name": args.brand_name,
+                "description": args.description,
+                "industry": args.industry,
+                "business_model": args.business_model,
+                "target_audience": args.target_audience,
+                "brand_voice": args.brand_voice,
+                "goals": args.goals,
+                "primary_products": optional_vec(&args.primary_products),
+                "matching_names": optional_vec(&args.matching_names),
+            }));
+            if body.as_object().is_none_or(|fields| fields.is_empty()) {
+                return Err(CliError::Usage(
+                    "Provide at least one profile field (--brand-name, --description, --industry, --business-model, --target-audience, --brand-voice, --goals, --primary-products, --matching-names)".into(),
+                ));
+            }
+            print_response(
+                client
+                    .patch(&format!("/projects/{}", args.id), body)
+                    .await?,
+                global.output,
+                false,
+            )
         }
         ProjectsCommand::DraftStart(args) => {
             let body = json!({
@@ -1074,11 +1236,16 @@ async fn run_reports(
     command: ReportsCommand,
 ) -> Result<()> {
     match command {
-        ReportsCommand::TechnicalGeo { url, country_code } => {
+        ReportsCommand::TechnicalGeo {
+            url,
+            country_code,
+            output_language_code,
+        } => {
             let body = compact_object(json!({
                 "project_id": client.project_id()?,
                 "url": url,
                 "country_code": country_code,
+                "output_language_code": output_language_code,
             }));
             print_response(
                 client.post("/technical_geo_reports", body).await?,
@@ -1086,7 +1253,71 @@ async fn run_reports(
                 false,
             )
         }
+        ReportsCommand::TechnicalGeoList {
+            report_type,
+            status,
+            batch_id,
+        } => {
+            let mut query = project_query(client)?;
+            query.push(("report_type".into(), report_type));
+            query.push_opt("status", status);
+            query.push_opt("batch_id", batch_id);
+            list_get(client, global, "/technical_geo_reports", query).await
+        }
+        ReportsCommand::TechnicalGeoGet { id, report_type } => {
+            let mut query = project_query(client)?;
+            query.push(("report_type".into(), report_type));
+            print_response(
+                client
+                    .get(&format!("/technical_geo_reports/{id}"), &query)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        ReportsCommand::TechnicalGeoUpdateContent {
+            id,
+            report_type,
+            content_version,
+            edits,
+        } => {
+            let body = json!({
+                "project_id": client.project_id()?,
+                "report_type": report_type,
+                "content_version": content_version,
+                "edits": edits_object(&edits)?,
+            });
+            print_response(
+                client
+                    .patch(&format!("/technical_geo_reports/{id}/content"), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        ReportsCommand::TechnicalGeoRevertContent { id, report_type } => {
+            let body = json!({
+                "project_id": client.project_id()?,
+                "report_type": report_type,
+            });
+            print_response(
+                client
+                    .post(&format!("/technical_geo_reports/{id}/revert_content"), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
     }
+}
+
+fn edits_object(raw: &str) -> Result<Value> {
+    let edits: Value = serde_json::from_str(raw)
+        .map_err(|error| CliError::Usage(format!("--edits must be a JSON object: {error}")))?;
+    if !edits.is_object() {
+        return Err(CliError::Usage("--edits must be a JSON object".into()));
+    }
+    Ok(edits)
 }
 
 async fn run_webhooks(
