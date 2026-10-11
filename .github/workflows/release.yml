@@ -66,3 +66,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh release create "${GITHUB_REF_NAME}" artifacts/* --generate-notes --verify-tag
+
+  npm:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: node npm/build.mjs "${GITHUB_REF_NAME#v}" artifacts npm-dist > npm-dirs.txt
+      - env:
+          NPM_PUBLISH_FLAGS: --provenance
+        run: xargs npm/publish.sh < npm-dirs.txt

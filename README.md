@@ -4,7 +4,11 @@
 
 ## Install
 
-Download the archive for your platform from [GitHub Releases](https://github.com/LLM-Pulse/llmpulse-cli/releases). Extract it, then move `llmpulse` or `llmpulse.exe` to a directory on your `PATH`.
+```bash
+npm install -g @llmpulse/cli    # or: pnpm add -g @llmpulse/cli, bun add -g @llmpulse/cli
+```
+
+The npm package installs the native binary for your platform. You can also download the archive for your platform from [GitHub Releases](https://github.com/LLM-Pulse/llmpulse-cli/releases). Extract it, then move `llmpulse` or `llmpulse.exe` to a directory on your `PATH`.
 
 To install from source with Cargo:
 
@@ -19,7 +23,7 @@ docker build -t llmpulse-cli .
 docker run --rm -e LLMPULSE_API_KEY llmpulse-cli ping
 ```
 
-Each release includes archives for macOS on Intel and Apple silicon, Linux on x86-64, and Windows on x86-64. Registry and Homebrew publishing remain separate release steps.
+Each release includes archives for macOS on Intel and Apple silicon, Linux on x86-64, and Windows on x86-64, and publishes the same binaries to npm.
 
 ## Set up the CLI
 
