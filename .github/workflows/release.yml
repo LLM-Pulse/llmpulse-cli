@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to npm (for example v2.1.0)
+        required: true
 
 permissions:
   contents: write
@@ -11,6 +16,7 @@ permissions:
 jobs:
   build:
     name: ${{ matrix.asset }}
+    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -69,21 +75,29 @@ jobs:
 
   npm:
     needs: release
+    if: ${{ !cancelled() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v4
+      - if: github.event_name == 'push'
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-      - run: node npm/build.mjs "${GITHUB_REF_NAME#v}" artifacts npm-dist > npm-dirs.txt
+      - if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir artifacts
+      - run: node npm/build.mjs "${TAG#v}" artifacts npm-dist > npm-dirs.txt
       - env:
           NPM_PUBLISH_FLAGS: --provenance
         run: xargs npm/publish.sh < npm-dirs.txt
