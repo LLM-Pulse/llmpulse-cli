@@ -71,6 +71,11 @@ pub enum Command {
         #[command(subcommand)]
         command: SearchConsoleCommand,
     },
+    /// Query the project's connected web analytics provider live, in its own query format.
+    WebAnalytics {
+        #[command(subcommand)]
+        command: WebAnalyticsCommand,
+    },
     /// Query citation intelligence and cited-page evidence.
     Citations {
         #[command(subcommand)]
@@ -121,10 +126,25 @@ pub enum Command {
         #[command(subcommand)]
         command: AnnotationsCommand,
     },
+    /// List team members and pending invitations, invite by email, revoke an invitation or remove a member.
+    Team {
+        #[command(subcommand)]
+        command: TeamCommand,
+    },
+    /// Match a store to its project, read or push AI-referred store orders, and manage catalog prompt suggestions.
+    Store {
+        #[command(subcommand)]
+        command: StoreCommand,
+    },
     /// Queue, list, and inspect technical GEO reports, and edit or revert llms.txt report files.
     Reports {
         #[command(subcommand)]
         command: ReportsCommand,
+    },
+    /// Create, schedule, run, and inspect GEO audits, their runs, findings, issues, and alerts.
+    GeoAudits {
+        #[command(subcommand)]
+        command: GeoAuditsCommand,
     },
     /// Manage webhook subscriptions and sample payloads.
     Webhooks {
@@ -233,6 +253,15 @@ pub struct DimensionListArgs {
     /// Brand name, as Reddit reports it.
     #[arg(long)]
     pub brand: Option<String>,
+    /// Which brands an answer mentions (executions and sources lists).
+    #[arg(long)]
+    pub mention_filter: Option<String>,
+    /// Whose domains an answer cites (executions list).
+    #[arg(long)]
+    pub citation_filter: Option<String>,
+    /// Source ownership: owned, competitor or third_party (sources list).
+    #[arg(long)]
+    pub source_type: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -271,7 +300,16 @@ pub enum DimensionsCommand {
 #[derive(Debug, Subcommand)]
 pub enum ReputationCommand {
     List(Box<DimensionListArgs>),
-    Get { id: u64 },
+    Get {
+        id: u64,
+        #[arg(long)]
+        model: Option<String>,
+        /// One brand name, or a comma-separated list.
+        #[arg(long)]
+        brand: Option<String>,
+        #[arg(long)]
+        dimension: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -318,6 +356,9 @@ pub struct MetricArgs {
     pub include_project: bool,
     #[arg(long)]
     pub group_by: Option<String>,
+    /// Share of Voice view: over_time, current or breakdown.
+    #[arg(long)]
+    pub view: Option<String>,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -416,6 +457,15 @@ pub struct SearchConsoleArgs {
     /// Maximum breakdown rows on summary.
     #[arg(long)]
     pub limit: Option<u32>,
+    /// How Google counts impressions: auto (default), byPage or byProperty.
+    #[arg(long)]
+    pub aggregation_type: Option<String>,
+    /// Skip this many of Google's top rows (it returns 25,000 per request).
+    #[arg(long)]
+    pub start_row: Option<u32>,
+    /// Comma-separated dimensions for rows, e.g. page,query.
+    #[arg(long)]
+    pub dimensions: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -424,6 +474,27 @@ pub enum SearchConsoleCommand {
     Timeseries(SearchConsoleArgs),
     Queries(SearchConsoleArgs),
     Pages(SearchConsoleArgs),
+    /// Rows grouped by up to 3 dimensions (date, country, device, page, query, searchAppearance).
+    Rows(SearchConsoleArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WebAnalyticsCommand {
+    /// Show the connected provider, its native query format, rules, an example, and its fields.
+    Schema,
+    /// Run one native query (GA4 runReport, Plausible, Matomo, HogQL, Piano or Adobe) live.
+    Query(WebAnalyticsQueryArgs),
+}
+
+#[derive(Clone, Debug, Args)]
+#[group(required = true, multiple = false)]
+pub struct WebAnalyticsQueryArgs {
+    /// The query: a JSON object, or HogQL text for PostHog.
+    #[arg(long)]
+    pub query: Option<String>,
+    /// A file holding the query: a JSON object, or HogQL text for PostHog.
+    #[arg(long)]
+    pub file: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Args)]
@@ -559,6 +630,9 @@ pub enum IntelligenceTasksCommand {
         id: String,
         #[arg(long)]
         edits: String,
+        /// result_version of the task as last read; a task regenerated since refuses the edit.
+        #[arg(long)]
+        result_version: Option<String>,
     },
     Revert {
         id: String,
@@ -581,6 +655,12 @@ pub struct IntelligenceTaskCreateArgs {
     pub existing_content: Option<String>,
     #[arg(long)]
     pub existing_content_url: Option<String>,
+    /// product_listing only: the store product as a JSON object (title required).
+    #[arg(long)]
+    pub product: Option<String>,
+    /// product_listing only: comma-separated project prompt ids the copy should answer.
+    #[arg(long, value_delimiter = ',')]
+    pub prompt_ids: Vec<u64>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -731,6 +811,16 @@ pub struct ProjectUpdateArgs {
     pub primary_products: Vec<String>,
     #[arg(long, value_delimiter = ',')]
     pub matching_names: Vec<String>,
+    /// Full replacement list of the other domains the brand owns (account owner only).
+    #[arg(
+        long,
+        value_delimiter = ',',
+        conflicts_with = "clear_additional_owned_domains"
+    )]
+    pub additional_owned_domains: Vec<String>,
+    /// Remove every additional owned domain (sends an empty list).
+    #[arg(long)]
+    pub clear_additional_owned_domains: bool,
 }
 
 #[derive(Debug, Args)]
@@ -865,6 +955,225 @@ pub enum ReportsCommand {
         #[arg(long)]
         report_type: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GeoAuditsCommand {
+    /// List the project's audits, most recently updated first.
+    List {
+        /// agent_readiness, robots_txt, crawlability, schema, content_readiness, discoverability or site_structure.
+        #[arg(long)]
+        audit_type: Option<String>,
+        /// active, paused or archived (archived audits are only listed when asked for).
+        #[arg(long)]
+        status: Option<String>,
+        /// once, weekly or monthly.
+        #[arg(long)]
+        cadence: Option<String>,
+    },
+    Get {
+        id: String,
+    },
+    /// Create one audit per audit type for a domain or URL and start its first run.
+    Create(GeoAuditCreateArgs),
+    /// Change an audit's cadence, schedule, email alerts, or status.
+    Update(GeoAuditUpdateArgs),
+    /// Archive an audit; creating it again restores it with its history.
+    Delete {
+        id: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Compare two runs check by check (defaults to the latest run against the previous one).
+    Compare {
+        id: String,
+        #[arg(long)]
+        from_run: Option<u64>,
+        #[arg(long)]
+        to_run: Option<u64>,
+    },
+    /// List, start, and inspect an audit's runs and their findings.
+    Runs {
+        #[command(subcommand)]
+        command: GeoAuditRunsCommand,
+    },
+    /// List an audit's issues, and accept or reopen one.
+    Issues {
+        #[command(subcommand)]
+        command: GeoAuditIssuesCommand,
+    },
+    /// List the alerts the project's audits raised, newest first.
+    Alerts {
+        #[arg(long)]
+        audit_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct GeoAuditCreateArgs {
+    /// The domain (site-wide types) or page URL to audit.
+    #[arg(long)]
+    pub target: String,
+    /// Comma-separated audit types; each becomes its own audit.
+    #[arg(long, required = true, value_delimiter = ',')]
+    pub audit_types: Vec<String>,
+    /// once (default), weekly or monthly.
+    #[arg(long)]
+    pub cadence: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct GeoAuditUpdateArgs {
+    pub id: String,
+    /// once, weekly or monthly.
+    #[arg(long)]
+    pub cadence: Option<String>,
+    /// Weekly: 0 (Sunday) to 6. Monthly: 1 to 28.
+    #[arg(long)]
+    pub schedule_day: Option<u8>,
+    /// Hour of the day, 0 to 23, in the audit time zone.
+    #[arg(long)]
+    pub schedule_hour: Option<u8>,
+    /// active resumes scheduled runs, paused stops them, archived is the same as delete.
+    #[arg(long)]
+    pub status: Option<String>,
+    #[arg(long)]
+    pub email_alerts: Option<bool>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GeoAuditRunsCommand {
+    /// List an audit's runs, newest first.
+    List { geo_audit_id: String },
+    /// Start a manual run (6 per audit per hour, 200 per account per day).
+    Start { geo_audit_id: String },
+    /// Show one run with its score, metrics, and full result.
+    Get { geo_audit_id: String, sequence: u64 },
+    /// List the findings of one run, most severe first.
+    Findings { geo_audit_id: String, sequence: u64 },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GeoAuditIssuesCommand {
+    List {
+        geo_audit_id: String,
+        /// open (open and not accepted), accepted, fixed or gone; default all.
+        #[arg(long)]
+        state: Option<String>,
+    },
+    /// Accept an issue (true) or reopen it (false).
+    Update {
+        geo_audit_id: String,
+        id: u64,
+        #[arg(long, action = clap::ArgAction::Set)]
+        accepted: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StoreCommand {
+    /// Show whether the account can use a store app and which project a store domain maps to.
+    Connection {
+        #[arg(long)]
+        domain: String,
+        #[arg(long, default_value = "shopify")]
+        platform: String,
+    },
+    /// Read the AI-referred orders a store app pushed for the project.
+    Orders {
+        #[arg(long, default_value = "shopify")]
+        platform: String,
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+    },
+    /// Replace the AI-referred orders of a window from a JSON file (platform, currency, from, to, days).
+    PushOrders {
+        #[arg(long)]
+        file: String,
+    },
+    /// List, generate, accept, and reject buyer prompt suggestions from catalog products.
+    Suggestions {
+        #[command(subcommand)]
+        command: StoreSuggestionsCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StoreSuggestionsCommand {
+    List {
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        product_external_id: Option<String>,
+    },
+    /// Generate suggestions from a JSON file holding an array of up to 20 products.
+    Create {
+        #[arg(long)]
+        products_file: String,
+        #[arg(long, default_value = "shopify")]
+        platform: String,
+        #[arg(long)]
+        country_code: Option<String>,
+        #[arg(long)]
+        language_code: Option<String>,
+    },
+    Accept {
+        #[arg(required = true, value_delimiter = ',')]
+        ids: Vec<u64>,
+    },
+    Reject {
+        #[arg(required = true, value_delimiter = ',')]
+        ids: Vec<u64>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TeamCommand {
+    /// List the account owner and the members who joined.
+    Members,
+    /// List pending invitations.
+    Invitations,
+    /// Invite someone by email; they receive the invitation email.
+    Invite(TeamInviteArgs),
+    /// Revoke a pending invitation.
+    Revoke {
+        id: u64,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Remove a member from the team.
+    Remove {
+        id: u64,
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct TeamInviteArgs {
+    pub email: String,
+    /// Projects the member can access (or pass --all-projects).
+    #[arg(long, value_delimiter = ',', conflicts_with = "all_projects")]
+    pub project_ids: Vec<u64>,
+    #[arg(long)]
+    pub all_projects: bool,
+    /// full_access (default), view_only, custom or account_role.
+    #[arg(long)]
+    pub permission_role: Option<String>,
+    /// With --permission-role account_role.
+    #[arg(long)]
+    pub account_role_id: Option<u64>,
+    /// With --permission-role custom: a JSON object of feature key to verbs.
+    #[arg(long)]
+    pub permissions: Option<String>,
+    /// Make the member a co-owner (account owner only).
+    #[arg(long)]
+    pub account_admin: bool,
+    /// Give the member access to Billing and Plans (account owner only).
+    #[arg(long)]
+    pub billing_access: bool,
 }
 
 #[derive(Debug, Subcommand)]

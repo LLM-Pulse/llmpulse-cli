@@ -70,6 +70,10 @@ impl ApiClient {
         self.request(Method::POST, path, &[], Some(body)).await
     }
 
+    pub async fn put(&self, path: &str, body: Value) -> Result<ApiResponse> {
+        self.request(Method::PUT, path, &[], Some(body)).await
+    }
+
     pub async fn patch(&self, path: &str, body: Value) -> Result<ApiResponse> {
         self.request(Method::PATCH, path, &[], Some(body)).await
     }

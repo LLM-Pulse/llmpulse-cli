@@ -8,10 +8,13 @@ pub const SUPPORTED_REST_OPERATIONS: &[(&str, &str)] = &[
     ("GET", "/metrics/top_sources"),
     ("GET", "/metrics/agent_traffic"),
     ("GET", "/metrics/ai_traffic"),
+    ("GET", "/web_analytics/schema"),
+    ("POST", "/web_analytics/query"),
     ("GET", "/search_console/summary"),
     ("GET", "/search_console/timeseries"),
     ("GET", "/search_console/queries"),
     ("GET", "/search_console/pages"),
+    ("GET", "/search_console/rows"),
     ("GET", "/dimensions/projects"),
     ("GET", "/dimensions/projects/{id}"),
     ("GET", "/dimensions/competitors"),
@@ -78,6 +81,18 @@ pub const SUPPORTED_REST_OPERATIONS: &[(&str, &str)] = &[
     ("POST", "/annotations"),
     ("PATCH", "/annotations/{id}"),
     ("DELETE", "/annotations/{id}"),
+    ("GET", "/team_members"),
+    ("GET", "/team_invitations"),
+    ("POST", "/team_invitations"),
+    ("DELETE", "/team_invitations/{id}"),
+    ("DELETE", "/team_members/{id}"),
+    ("GET", "/store_connection"),
+    ("GET", "/ai_orders"),
+    ("PUT", "/ai_orders"),
+    ("GET", "/catalog_prompt_suggestions"),
+    ("POST", "/catalog_prompt_suggestions"),
+    ("POST", "/catalog_prompt_suggestions/accept"),
+    ("POST", "/catalog_prompt_suggestions/reject"),
     ("GET", "/technical_geo_reports"),
     ("GET", "/technical_geo_reports/{id}"),
     ("POST", "/technical_geo_reports"),
@@ -88,6 +103,19 @@ pub const SUPPORTED_REST_OPERATIONS: &[(&str, &str)] = &[
     ("GET", "/intelligence_tasks/{id}"),
     ("PATCH", "/intelligence_tasks/{id}"),
     ("POST", "/intelligence_tasks/{id}/revert"),
+    ("GET", "/geo_audits"),
+    ("POST", "/geo_audits"),
+    ("GET", "/geo_audits/{id}"),
+    ("PATCH", "/geo_audits/{id}"),
+    ("DELETE", "/geo_audits/{id}"),
+    ("GET", "/geo_audits/{id}/comparison"),
+    ("GET", "/geo_audits/{geo_audit_id}/runs"),
+    ("POST", "/geo_audits/{geo_audit_id}/runs"),
+    ("GET", "/geo_audits/{geo_audit_id}/runs/{sequence}"),
+    ("GET", "/geo_audits/{geo_audit_id}/runs/{sequence}/findings"),
+    ("GET", "/geo_audits/{geo_audit_id}/issues"),
+    ("PATCH", "/geo_audits/{geo_audit_id}/issues/{id}"),
+    ("GET", "/geo_alerts"),
     ("GET", "/webhooks"),
     ("POST", "/webhooks"),
     ("DELETE", "/webhooks/{id}"),
@@ -133,90 +161,8 @@ mod tests {
         assert_eq!(supported, documented);
     }
 
-    // The path list above only proves the CLI knows an endpoint exists. It says
-    // nothing about the parameters that endpoint takes, and that is where the
-    // CLI actually fell behind: by 1.46.0 it never sent prompt_type, brand_kind,
-    // the four Search Console narrowing parameters, the answer mention and
-    // citation filters, or the view/order/owned family the shopping, ads,
-    // owned-media and Reddit lists are built around. Nothing failed, because
-    // nothing compared them.
-    //
-    // This is a name-level check: a parameter the contract documents has to
-    // appear somewhere in the CLI source. It does not prove the parameter is
-    // wired to the right endpoint, which would need the query builders to be
-    // data rather than code. It does catch the drift that happened, which is a
-    // parameter being added to the API and the CLI never hearing about it.
-    #[test]
-    fn every_documented_query_parameter_is_known_to_the_cli() {
-        // Deliberately not exposed, with the reason. Growing this list is a
-        // decision; leaving it empty by accident is the bug above.
-        const UNSUPPORTED_QUERY_PARAMS: &[(&str, &str)] = &[(
-            "output",
-            "the CLI renders json, table and csv itself from the JSON response, \
-             so asking the API for a flat or csv body would bypass its own \
-             formatter and collide with the global --output flag",
-        )];
-
-        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let bundled = fs::read_to_string(manifest_dir.join("openapi.json")).unwrap();
-        let document: Value = serde_json::from_str(&bundled).unwrap();
-        let components = &document["components"]["parameters"];
-        let source = format!("{}{}", include_str!("commands.rs"), include_str!("cli.rs"));
-
-        let exempt = UNSUPPORTED_QUERY_PARAMS
-            .iter()
-            .map(|(name, _)| *name)
-            .collect::<BTreeSet<_>>();
-        let mut missing = BTreeSet::new();
-
-        for (path, entry) in document["paths"].as_object().unwrap() {
-            for (method, operation) in entry.as_object().unwrap() {
-                if !["get", "post", "put", "patch", "delete"].contains(&method.as_str()) {
-                    continue;
-                }
-                let tags = operation["tags"].as_array().cloned().unwrap_or_default();
-                if tags
-                    .iter()
-                    .any(|tag| matches!(tag.as_str(), Some("MCP" | "OAuth" | "OAuth 2.1")))
-                {
-                    continue;
-                }
-
-                let shared = entry["parameters"].as_array().cloned().unwrap_or_default();
-                let own = operation["parameters"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default();
-                for parameter in shared.iter().chain(own.iter()) {
-                    let parameter = match parameter["$ref"].as_str() {
-                        Some(reference) => &components[reference.rsplit('/').next().unwrap()],
-                        None => parameter,
-                    };
-                    if parameter["in"].as_str() != Some("query") {
-                        continue;
-                    }
-                    let name = parameter["name"].as_str().unwrap();
-                    if exempt.contains(name) {
-                        continue;
-                    }
-                    // Rails array parameters are sent as name[].
-                    if source.contains(&format!("\"{name}\""))
-                        || source.contains(&format!("\"{name}[]\""))
-                    {
-                        continue;
-                    }
-                    missing.insert(format!("{name} ({} {path})", method.to_uppercase()));
-                }
-            }
-        }
-
-        assert!(
-            missing.is_empty(),
-            "these documented query parameters are not sent by the CLI. Wire each one \
-             into its command, or add it to UNSUPPORTED_QUERY_PARAMS with the reason: {missing:#?}"
-        );
-    }
-
+    // Query parameters are held to their endpoint by tests/contract_wiring.rs,
+    // which runs every command against a recording server.
     #[test]
     fn every_manifest_path_is_wired_into_the_command_dispatcher() {
         let source = include_str!("commands.rs");

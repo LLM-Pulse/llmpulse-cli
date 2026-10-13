@@ -1,6 +1,6 @@
 # LLM Pulse CLI
 
-`llmpulse` is the native Rust command-line client for the [LLM Pulse API](https://llmpulse.ai/api-docs). It queries visibility metrics, mentions, citations, sentiment, AI traffic, Search Console, recommendations, GEO Writer tasks, and webhooks from a terminal or CI job.
+`llmpulse` is the native Rust command-line client for the [LLM Pulse API](https://llmpulse.ai/api-docs). It queries visibility metrics, mentions, citations, sentiment, AI traffic, live web analytics, Search Console, recommendations, GEO Writer tasks, and webhooks from a terminal or CI job.
 
 ## Install
 
@@ -13,7 +13,7 @@ The npm package installs the native binary for your platform. You can also downl
 To install from source with Cargo:
 
 ```bash
-cargo install --git https://github.com/LLM-Pulse/llmpulse-cli --tag v2.1.0 --locked
+cargo install --git https://github.com/LLM-Pulse/llmpulse-cli --tag v2.2.0 --locked
 ```
 
 You can also run the container locally:
@@ -48,6 +48,11 @@ llmpulse dimensions citations --all --format csv > citations.csv
 # AI referral traffic from connected analytics
 llmpulse metrics ai-traffic --range 30
 
+# Live query against the project's connected web analytics provider
+llmpulse web-analytics schema
+llmpulse web-analytics query --query '{"metrics":["visitors"],"date_range":"7d","dimensions":["visit:source"]}'
+llmpulse web-analytics query --query 'SELECT event, count() FROM events GROUP BY event LIMIT 10'
+
 # Top Google Search Console queries
 llmpulse search-console queries --range 30 --per-page 50
 
@@ -69,12 +74,16 @@ llmpulse webhooks create \
 | `dimensions` | Projects, competitors, prompts, executions, sources, mentions, citations, locales, models, and bots |
 | `metrics` | Timeseries, summary, prompt performance, share of voice, top sources, AI crawler traffic, and AI referral traffic |
 | `search-console` | Search Console summary, timeseries, queries, and pages |
+| `web-analytics` | Live native queries against the project's connected web analytics provider (GA4, Adobe, Matomo, PostHog, Plausible, Piano) |
 | `citations` | Grouped citation intelligence, citing-domain mention share, URL details, occurrences, and cached content |
 | `answers`, `sentiments` | AI responses and sentiment records |
 | `recommendations` | Recommendation runs and generation |
 | `intelligence-tasks` | GEO Writer tasks |
+| `geo-audits` | GEO audits: runs, findings, comparisons, issues and alerts |
 | `projects`, `prompts`, `competitors`, `collections` | Project setup and resource management |
 | `annotations` | Timeline annotation management |
+| `team` | Team members and pending invitations: list, invite, revoke and remove |
+| `store` | Store app endpoints: store connection, AI-referred orders, and catalog prompt suggestions |
 | `reports` | Technical GEO reports: create, list, and inspect them, and edit or revert llms.txt files |
 | `webhooks` | Subscriptions and sample payloads |
 | `export` | Full JSON and CSV exports |
