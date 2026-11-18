@@ -147,7 +147,7 @@ fn sample_value(arg: &clap::Arg, workdir: &Path) -> String {
     if id == "from" || id == "to" || id.ends_with("_date") {
         return "2026-01-01".to_owned();
     }
-    if id.contains("sha") {
+    if id.contains("sha256") {
         return "a".repeat(64);
     }
     if id.contains("url") {

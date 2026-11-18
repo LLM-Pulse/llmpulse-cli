@@ -91,7 +91,7 @@ fn format_table(value: &Value) -> String {
     let columns = rows[0].keys().cloned().collect::<Vec<_>>();
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL_CONDENSED)
+        .load_style(UTF8_FULL_CONDENSED)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(columns.iter().map(Cell::new));
     for row in rows {
@@ -111,7 +111,11 @@ fn format_csv(value: &Value) -> Result<String> {
     }
     let columns = rows[0].keys().cloned().collect::<Vec<_>>();
     let mut writer = csv::Writer::from_writer(Vec::new());
-    writer.write_record(&columns)?;
+    writer.write_record(
+        columns
+            .iter()
+            .map(|column| sanitize_spreadsheet_cell(column.clone())),
+    )?;
     for row in rows {
         writer.write_record(columns.iter().map(|column| {
             sanitize_spreadsheet_cell(cell_string(row.get(column).unwrap_or(&Value::Null)))
@@ -131,8 +135,12 @@ fn cell_string(value: &Value) -> String {
     }
 }
 
+// Mirrors Exports::CellSanitizer: a lone trigger character (the "-" blank
+// placeholder) is inert and stays as it is.
+const FORMULA_PREFIXES: [char; 6] = ['=', '+', '-', '@', '\t', '\r'];
+
 fn sanitize_spreadsheet_cell(value: String) -> String {
-    if value.starts_with(['=', '+', '-', '@']) {
+    if value.starts_with(FORMULA_PREFIXES) && value.chars().nth(1).is_some() {
         format!("'{value}")
     } else {
         value
@@ -159,11 +167,84 @@ mod tests {
         assert!(csv.contains("\"hello, world\""));
     }
 
+    // Same rule as Exports::CellSanitizer on the server: the CLI builds its CSV
+    // from JSON locally, so the server's output=csv never runs on this path.
+    #[test]
+    fn sanitizes_cells_like_the_server_cell_sanitizer() {
+        let cases = [
+            ("=1+1", "'=1+1"),
+            ("+1", "'+1"),
+            ("-2+3", "'-2+3"),
+            ("@SUM(A1)", "'@SUM(A1)"),
+            ("\t=1+1", "'\t=1+1"),
+            ("\r=1+1", "'\r=1+1"),
+            ("=ü", "'=ü"),
+            ("=", "="),
+            ("-", "-"),
+            ("\t", "\t"),
+            ("", ""),
+            ("a=1", "a=1"),
+            (" =1", " =1"),
+            ("Zürich", "Zürich"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                sanitize_spreadsheet_cell(input.to_owned()),
+                expected,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn csv_keeps_control_prefixed_formulas_and_formula_headers_literal() {
+        let value = json!([{
+            "=cmd": "x",
+            "note": "\t=HYPERLINK(\"http://x\")",
+            "line": "\r=1+1",
+            "dash": "-",
+            "text": "Zürich, \"quoted\""
+        }]);
+        let csv = format_value(&value, OutputFormat::Csv).unwrap();
+        let mut reader = csv::Reader::from_reader(csv.as_bytes());
+        let headers = reader.headers().unwrap().clone();
+        let record = reader.records().next().unwrap().unwrap();
+        let cell = |name: &str| {
+            let index = headers.iter().position(|header| header == name).unwrap();
+            record.get(index).unwrap().to_owned()
+        };
+
+        assert!(
+            headers.iter().any(|header| header == "'=cmd"),
+            "{headers:?}"
+        );
+        assert_eq!(cell("note"), "'\t=HYPERLINK(\"http://x\")");
+        assert_eq!(cell("line"), "'\r=1+1");
+        assert_eq!(cell("dash"), "-");
+        assert_eq!(cell("text"), "Zürich, \"quoted\"");
+    }
+
     #[test]
     fn table_handles_empty_arrays() {
         assert_eq!(
             format_value(&json!([]), OutputFormat::Table).unwrap(),
             "(no data)"
         );
+    }
+
+    #[test]
+    fn table_renders_utf8_full_condensed_with_wide_characters() {
+        let value = json!([
+            {"brand": "Zürich Café", "city": "東京", "mentions": 12},
+            {"brand": "Acme", "city": null, "mentions": 3}
+        ]);
+        let expected = "\
+┌─────────────┬──────┬──────────┐
+│ brand       ┆ city ┆ mentions │
+╞═════════════╪══════╪══════════╡
+│ Zürich Café ┆ 東京 ┆ 12       │
+│ Acme        ┆      ┆ 3        │
+└─────────────┴──────┴──────────┘";
+        assert_eq!(format_value(&value, OutputFormat::Table).unwrap(), expected);
     }
 }

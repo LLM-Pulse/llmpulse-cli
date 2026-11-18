@@ -13,7 +13,7 @@ The npm package installs the native binary for your platform. You can also downl
 To install from source with Cargo:
 
 ```bash
-cargo install --git https://github.com/LLM-Pulse/llmpulse-cli --tag v2.2.0 --locked
+cargo install --git https://github.com/LLM-Pulse/llmpulse-cli --tag v2.3.0 --locked
 ```
 
 You can also run the container locally:
@@ -73,16 +73,20 @@ llmpulse webhooks create \
 | `status`, `diff`, `report`, `watch` | Project summaries and terminal reports |
 | `dimensions` | Projects, competitors, prompts, executions, sources, mentions, citations, locales, models, and bots |
 | `metrics` | Timeseries, summary, prompt performance, share of voice, top sources, AI crawler traffic, and AI referral traffic |
-| `search-console` | Search Console summary, timeseries, queries, and pages |
+| `search-console` | Search Console properties, summary, timeseries, queries, pages and rows, and the opportunities, cannibalization, decay, brand-split and ai-visibility-gaps reports (`--property` reads one or combines several) |
 | `web-analytics` | Live native queries against the project's connected web analytics provider (GA4, Adobe, Matomo, PostHog, Plausible, Piano) |
 | `citations` | Grouped citation intelligence, citing-domain mention share, URL details, occurrences, and cached content |
-| `answers`, `sentiments` | AI responses and sentiment records |
-| `recommendations` | Recommendation runs and generation |
-| `intelligence-tasks` | GEO Writer tasks |
+| `answers`, `sentiments` | AI responses, sentiment records, and sentiment by topic and by tag |
+| `recommendations` | Recommendation runs, generation, and item status (complete, archive, restore) |
+| `custom-reports` | Custom reports: list, read with widget data, and send now |
+| `intelligence-tasks` | GEO Writer tasks, including `send-to-cms`, which sends a finished article or update to the connected WordPress site as a draft |
+| `cms` | Posts and pages of the project's connected WordPress site: list and get (`cms list` takes `--page` and `--per-page`, at most 50, but not `--all`) |
 | `geo-audits` | GEO audits: runs, findings, comparisons, issues and alerts |
-| `projects`, `prompts`, `competitors`, `collections` | Project setup and resource management |
+| `projects`, `prompts`, `competitors`, `collections` | Project setup, deletion and resource management, including manual prompt categorization and competitor suggestions |
 | `annotations` | Timeline annotation management |
+| `url-lists` | URL lists: list them with their citation numbers, read one with its summary and entries, create, update and delete them, and add or remove entries (`--entry` repeated, or `--entries-file` with a JSON array) |
 | `team` | Team members and pending invitations: list, invite, revoke and remove |
+| `api-keys` | Your API keys: list, create a key limited to some projects (its token is printed once), and revoke |
 | `store` | Store app endpoints: store connection, AI-referred orders, and catalog prompt suggestions |
 | `reports` | Technical GEO reports: create, list, and inspect them, and edit or revert llms.txt files |
 | `webhooks` | Subscriptions and sample payloads |

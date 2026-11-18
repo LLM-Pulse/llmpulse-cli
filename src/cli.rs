@@ -86,22 +86,27 @@ pub enum Command {
         #[command(subcommand)]
         command: AnswersCommand,
     },
-    /// Query sentiment records.
+    /// Query sentiment records and the Sentiment page's topic and tag tables.
     Sentiments {
         #[command(subcommand)]
         command: SentimentsCommand,
     },
-    /// List, inspect, and launch recommendation runs.
+    /// List, inspect, and launch recommendation runs, and update an item's status.
     Recommendations {
         #[command(subcommand)]
         command: RecommendationsCommand,
     },
-    /// List, inspect, create, edit, and revert GEO Writer tasks.
+    /// List and read custom reports, or email one to its recipients now.
+    CustomReports {
+        #[command(subcommand)]
+        command: CustomReportsCommand,
+    },
+    /// List, inspect, create, edit, and revert GEO Writer tasks, or send one to WordPress as a draft.
     IntelligenceTasks {
         #[command(subcommand)]
         command: IntelligenceTasksCommand,
     },
-    /// Create and delete prompts or assign tags.
+    /// Create, categorize, and delete prompts or assign tags.
     Prompts {
         #[command(subcommand)]
         command: PromptsCommand,
@@ -126,10 +131,25 @@ pub enum Command {
         #[command(subcommand)]
         command: AnnotationsCommand,
     },
+    /// List, inspect, create, update, and delete URL lists, and add or remove their entries.
+    UrlLists {
+        #[command(subcommand)]
+        command: UrlListsCommand,
+    },
     /// List team members and pending invitations, invite by email, revoke an invitation or remove a member.
     Team {
         #[command(subcommand)]
         command: TeamCommand,
+    },
+    /// List your API keys, create a key limited to some of your projects, or revoke one.
+    ApiKeys {
+        #[command(subcommand)]
+        command: ApiKeysCommand,
+    },
+    /// Read the posts and pages of the project's connected WordPress site.
+    Cms {
+        #[command(subcommand)]
+        command: CmsCommand,
     },
     /// Match a store to its project, read or push AI-referred store orders, and manage catalog prompt suggestions.
     Store {
@@ -217,6 +237,24 @@ pub struct FilterArgs {
     pub dates: DateArgs,
 }
 
+/// The filters the owned-media endpoints read: no prompt or prompt type.
+#[derive(Clone, Debug, Default, Args)]
+pub struct OwnedMediaFilterArgs {
+    #[arg(long)]
+    pub model: Option<String>,
+    /// One collection/tag ID, or a comma-separated list.
+    #[arg(long)]
+    pub collection_id: Option<String>,
+    #[arg(long)]
+    pub country_code: Option<String>,
+    #[arg(long)]
+    pub language_code: Option<String>,
+    #[arg(long)]
+    pub brand_kind: Option<String>,
+    #[command(flatten)]
+    pub dates: DateArgs,
+}
+
 #[derive(Clone, Debug, Default, Args)]
 pub struct DimensionListArgs {
     #[command(flatten)]
@@ -293,8 +331,36 @@ pub enum DimensionsCommand {
     Ads(DimensionListArgs),
     LocalBusinesses(DimensionListArgs),
     OwnedMedia(DimensionListArgs),
+    /// KPI cards, previous-period comparison, weekly series and breakdowns of one Owned Media tab.
+    OwnedMediaSummary(OwnedMediaSummaryArgs),
+    /// The AI answers that cited one owned-media post, video, profile or channel.
+    OwnedMediaCitingPrompts(OwnedMediaCitingPromptsArgs),
     Reddit(DimensionListArgs),
     QueryFanOuts(DimensionListArgs),
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct OwnedMediaSummaryArgs {
+    /// youtube, instagram, facebook, tiktok, linkedin, mobile_apps or overview.
+    #[arg(long)]
+    pub provider: String,
+    #[command(flatten)]
+    pub filters: OwnedMediaFilterArgs,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct OwnedMediaCitingPromptsArgs {
+    /// youtube, instagram, facebook, tiktok or linkedin.
+    #[arg(long)]
+    pub provider: String,
+    /// The post or video URL (or a profile or channel URL).
+    #[arg(long, conflicts_with = "profile")]
+    pub url: Option<String>,
+    /// A handle, a profile or channel URL, or a YouTube channel key.
+    #[arg(long)]
+    pub profile: Option<String>,
+    #[command(flatten)]
+    pub filters: OwnedMediaFilterArgs,
 }
 
 #[derive(Debug, Subcommand)]
@@ -309,6 +375,11 @@ pub enum ReputationCommand {
         brand: Option<String>,
         #[arg(long)]
         dimension: Option<String>,
+    },
+    /// Start this month's report, or with --recalculate use its one manual recalculation.
+    Create {
+        #[arg(long)]
+        recalculate: bool,
     },
 }
 
@@ -332,8 +403,14 @@ pub enum StudiesCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ProjectsDimensionCommand {
-    List,
-    Get { id: u64 },
+    List {
+        /// exclude (default) leaves out pitch projects, include lists them too, only lists them alone.
+        #[arg(long, value_parser = ["exclude", "include", "only"])]
+        pitch: Option<String>,
+    },
+    Get {
+        id: u64,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -352,8 +429,9 @@ pub struct MetricArgs {
     pub granularity: Option<String>,
     #[arg(long, value_delimiter = ',')]
     pub competitors: Vec<u64>,
-    #[arg(long)]
-    pub include_project: bool,
+    /// Include the project's own series (the API default). `--include-project false` leaves it out.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub include_project: Option<bool>,
     #[arg(long)]
     pub group_by: Option<String>,
     /// Share of Voice view: over_time, current or breakdown.
@@ -381,6 +459,12 @@ pub struct TopSourcesArgs {
     pub sort: Option<String>,
     #[arg(long)]
     pub query: Option<String>,
+    /// Tags (collections) to include at once, as a union; combines with --collection-id.
+    #[arg(long, value_delimiter = ',')]
+    pub collection_ids: Vec<u64>,
+    /// Keep only these exact domains (comma-separated, case-insensitive).
+    #[arg(long, value_delimiter = ',')]
+    pub domains: Vec<String>,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -439,6 +523,9 @@ pub enum MetricsCommand {
 pub struct SearchConsoleArgs {
     #[command(flatten)]
     pub dates: DateArgs,
+    /// Property id to read (default: the primary one), or a comma-separated list or all to combine several.
+    #[arg(long)]
+    pub property: Option<String>,
     #[arg(long)]
     pub dimension: Option<String>,
     #[arg(long)]
@@ -466,16 +553,46 @@ pub struct SearchConsoleArgs {
     /// Comma-separated dimensions for rows, e.g. page,query.
     #[arg(long)]
     pub dimensions: Option<String>,
+    /// Reports: smallest impressions a query needs (default 100).
+    #[arg(long)]
+    pub min_impressions: Option<u32>,
+    /// Opportunities: best average position to include (default 4).
+    #[arg(long)]
+    pub min_position: Option<f64>,
+    /// Opportunities: worst average position to include (default 20).
+    #[arg(long)]
+    pub max_position: Option<f64>,
+    /// Cannibalization: smallest share of a query's impressions a page needs, 0.01 to 0.5 (default 0.1).
+    #[arg(long)]
+    pub min_share: Option<f64>,
+    /// Decay: smallest clicks in the previous window (default 10).
+    #[arg(long)]
+    pub min_clicks: Option<u32>,
+    /// AI visibility gaps: list only the queries no prompt of the project matches.
+    #[arg(long)]
+    pub unmatched_only: bool,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum SearchConsoleCommand {
+    /// The project's connected properties, primary first: the values --property takes.
+    Properties,
     Summary(SearchConsoleArgs),
     Timeseries(SearchConsoleArgs),
     Queries(SearchConsoleArgs),
     Pages(SearchConsoleArgs),
     /// Rows grouped by up to 3 dimensions (date, country, device, page, query, searchAppearance).
     Rows(SearchConsoleArgs),
+    /// Queries just below the top 3, ranked by the clicks a top-3 move would add.
+    Opportunities(SearchConsoleArgs),
+    /// Queries several of the site's pages compete for.
+    Cannibalization(SearchConsoleArgs),
+    /// Pages (or queries, with --dimension query) losing clicks against the previous window.
+    Decay(SearchConsoleArgs),
+    /// Branded and non-branded totals, from the brand name and matching names.
+    BrandSplit(SearchConsoleArgs),
+    /// Top queries matched against the prompts the project tracks in AI answers.
+    AiVisibilityGaps(SearchConsoleArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -521,6 +638,12 @@ pub struct CitationListArgs {
     pub order: Option<String>,
     #[arg(long, default_value = "desc")]
     pub direction: String,
+    /// Only this group of the chosen --view: a domain, a host or a cited URL.
+    #[arg(long)]
+    pub key: Option<String>,
+    /// Add citation_series (answers by AI model and per period) to the row. Needs --key.
+    #[arg(long)]
+    pub include_series: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -536,6 +659,9 @@ pub enum CitationsCommand {
         url_sha256: String,
         #[command(flatten)]
         filters: CitationFilterArgs,
+        /// Add citation_series: the answers citing the URL by AI model and per period.
+        #[arg(long)]
+        include_series: bool,
     },
     Occurrences {
         url_sha256: String,
@@ -588,9 +714,45 @@ pub struct SentimentListArgs {
     pub analysis: Option<String>,
 }
 
+#[derive(Debug, Args)]
+pub struct SentimentBreakdownArgs {
+    #[command(flatten)]
+    pub dates: DateArgs,
+    #[arg(long)]
+    pub model: Option<String>,
+    /// One collection/tag ID, or a comma-separated list.
+    #[arg(long)]
+    pub collection_id: Option<String>,
+    #[arg(long)]
+    pub country_code: Option<String>,
+    #[arg(long)]
+    pub language_code: Option<String>,
+    #[arg(long)]
+    pub brand_kind: Option<String>,
+    #[arg(long)]
+    pub analysis: Option<String>,
+    #[arg(long)]
+    pub topic: Option<String>,
+    #[arg(long)]
+    pub query: Option<String>,
+    /// Empty for your own brand, `all` for every brand, or a competitor id.
+    #[arg(long)]
+    pub brand: Option<String>,
+    /// mentions, name, positive, negative, neutral or net_score.
+    #[arg(long)]
+    pub sort: Option<String>,
+    /// desc or asc.
+    #[arg(long)]
+    pub sort_dir: Option<String>,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum SentimentsCommand {
     List(SentimentListArgs),
+    /// The Sentiment page's Topics table.
+    Topics(SentimentBreakdownArgs),
+    /// The Sentiment page's Tags table.
+    Tags(SentimentBreakdownArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -612,6 +774,32 @@ pub enum RecommendationsCommand {
         #[arg(long, default_value = "ai_visibility")]
         recommendation_type: String,
     },
+    /// Mark an item completed, archive it, or move it back to active.
+    UpdateItem {
+        id: u64,
+        item_id: u64,
+        /// completed, archived or active.
+        #[arg(long)]
+        status: String,
+        /// With --status archived: not_relevant, too_complex or competitor.
+        #[arg(long)]
+        reason: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CustomReportsCommand {
+    List,
+    /// The report's configuration and the data of every widget.
+    Get {
+        id: u64,
+    },
+    /// Email the report to its recipients now.
+    Send {
+        id: u64,
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -619,6 +807,7 @@ pub enum IntelligenceTasksCommand {
     List {
         #[arg(long)]
         task_type: Option<String>,
+        /// Keep only tasks in this status. Discarded tasks are never listed.
         #[arg(long)]
         status: Option<String>,
     },
@@ -636,6 +825,32 @@ pub enum IntelligenceTasksCommand {
     },
     Revert {
         id: String,
+    },
+    /// Send a completed article or content update to the connected WordPress site as a new draft.
+    SendToCms {
+        id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CmsCommand {
+    /// List the posts or pages of the project's connected WordPress site.
+    List {
+        /// post or page.
+        #[arg(long = "type")]
+        content_type: Option<String>,
+        /// publish, future, draft, pending, private or any.
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        search: Option<String>,
+    },
+    /// Read one post or page of the connected WordPress site, with sanitized content.
+    Get {
+        id: u64,
+        /// post or page.
+        #[arg(long = "type")]
+        content_type: Option<String>,
     },
 }
 
@@ -666,7 +881,36 @@ pub struct IntelligenceTaskCreateArgs {
 #[derive(Debug, Subcommand)]
 pub enum PromptsCommand {
     Create(PromptCreateArgs),
+    /// Import up to 500 prompts from a JSON file: an array of rows, each with a
+    /// prompt and optional country_code, language_code and tags.
+    Import {
+        #[arg(long)]
+        rows_file: String,
+    },
     AssignTags(PromptAssignTagsArgs),
+    /// Detach tags from prompts; the tags and the prompts are kept.
+    RemoveTags(PromptRemoveTagsArgs),
+    /// Start a prompt suggestion run; its ideas land in the suggestion queue.
+    Generate(PromptGenerateArgs),
+    /// Show a suggestion run started with `prompts generate`.
+    Generation {
+        id: String,
+    },
+    /// The suggestion queue: list, accept into tracked prompts, or reject.
+    Suggestions {
+        #[command(subcommand)]
+        command: PromptSuggestionsCommand,
+    },
+    /// Set a prompt's search intent and/or brand focus by hand.
+    Update {
+        id: u64,
+        /// informational, navigational, commercial or transactional.
+        #[arg(long)]
+        prompt_type: Option<String>,
+        /// brand, brand_other or non_brand.
+        #[arg(long)]
+        brand_kind: Option<String>,
+    },
     Delete {
         id: u64,
         #[arg(long)]
@@ -685,6 +929,78 @@ pub struct PromptCreateArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct PromptRemoveTagsArgs {
+    #[arg(long, required = true, value_delimiter = ',')]
+    pub prompt_ids: Vec<u64>,
+    #[arg(long, value_delimiter = ',')]
+    pub tag_ids: Vec<u64>,
+    #[arg(long, value_delimiter = ',')]
+    pub tag_names: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct PromptGenerateArgs {
+    /// website, keyword, topic, reddit, paa, reputational, translate or search_console.
+    #[arg(long)]
+    pub source: String,
+    #[arg(long)]
+    pub query: Option<String>,
+    #[arg(long)]
+    pub count: Option<u32>,
+    #[arg(long)]
+    pub country_code: Option<String>,
+    #[arg(long)]
+    pub language_code: Option<String>,
+    #[arg(long)]
+    pub competitor_id: Option<u64>,
+    /// reddit only: topic or brand.
+    #[arg(long)]
+    pub search_type: Option<String>,
+    /// paa only: up to 5 comma-separated keywords.
+    #[arg(long, value_delimiter = ',')]
+    pub keywords: Vec<String>,
+    /// translate only: the locale of the prompts to translate.
+    #[arg(long)]
+    pub source_country_code: Option<String>,
+    #[arg(long)]
+    pub source_language_code: Option<String>,
+    /// search_console only: the property id to read (default: the primary one).
+    #[arg(long)]
+    pub property: Option<String>,
+    #[arg(long)]
+    pub min_words: Option<u32>,
+    #[arg(long)]
+    pub all_countries: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PromptSuggestionsCommand {
+    List {
+        #[arg(long)]
+        source: Option<String>,
+        /// pending (default), accepted, rejected or all.
+        #[arg(long)]
+        status: Option<String>,
+    },
+    Accept {
+        #[arg(required = true, value_delimiter = ',')]
+        ids: Vec<u64>,
+        /// Tag the new prompts with one existing tag.
+        #[arg(long, value_delimiter = ',')]
+        tag_ids: Vec<u64>,
+        /// Tag the new prompts with one tag by name.
+        #[arg(long, value_delimiter = ',')]
+        tag_names: Vec<String>,
+        #[arg(long)]
+        create_missing: bool,
+    },
+    Reject {
+        #[arg(required = true, value_delimiter = ',')]
+        ids: Vec<u64>,
+    },
+}
+
+#[derive(Debug, Args)]
 pub struct PromptAssignTagsArgs {
     #[arg(long, required = true, value_delimiter = ',')]
     pub prompt_ids: Vec<u64>,
@@ -698,6 +1014,14 @@ pub struct PromptAssignTagsArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum CompetitorsCommand {
+    /// The Competitors page's suggestions: proposed brands, or cited domains not tracked yet.
+    Suggestions {
+        /// brands (default) or citations.
+        #[arg(long)]
+        basis: Option<String>,
+        #[arg(long)]
+        query: Option<String>,
+    },
     Create(CompetitorCreateArgs),
     Update(CompetitorUpdateArgs),
     Delete {
@@ -732,6 +1056,12 @@ pub struct CompetitorUpdateArgs {
 pub enum ProjectsCommand {
     Create(ProjectCreateArgs),
     Update(ProjectUpdateArgs),
+    /// Delete a project and all of its data. This cannot be undone.
+    Delete {
+        id: u64,
+        #[arg(long)]
+        yes: bool,
+    },
     DraftStart(ProjectDraftStartArgs),
     DraftGet {
         id: String,
@@ -749,6 +1079,17 @@ pub enum ProjectsCommand {
         id: String,
         #[arg(long)]
         defer_execution: bool,
+    },
+    /// Show the owned-media profiles a project claims, per platform.
+    OwnedMedia {
+        id: u64,
+    },
+    /// Set or clear owned-media profiles from a JSON object (only the fields sent change).
+    OwnedMediaUpdate {
+        id: u64,
+        /// JSON object, e.g. {"instagram_profile_url":"https://www.instagram.com/acme/","reddit_subreddits":["acme"]}.
+        #[arg(long)]
+        payload: String,
     },
 }
 
@@ -788,6 +1129,9 @@ pub struct ProjectCreateArgs {
     pub external_identifier: Option<String>,
     #[arg(long)]
     pub defer_execution: bool,
+    /// Create a pitch project: a one-off snapshot for a prospect that runs its prompts (1 to 100) once, takes no project slot and is deleted after 90 days unless converted. Uses one of the month's pitch projects.
+    #[arg(long, conflicts_with = "defer_execution")]
+    pub pitch: bool,
 }
 
 #[derive(Debug, Args)]
@@ -821,6 +1165,19 @@ pub struct ProjectUpdateArgs {
     /// Remove every additional owned domain (sends an empty list).
     #[arg(long)]
     pub clear_additional_owned_domains: bool,
+    /// The most prompts this project can hold, from 1 to 2147483647 (account owner, or a co-owner with Projects update). A limit below the current count deletes no prompt; the account's plan allowance still applies.
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u32).range(1..=2_147_483_647),
+        conflicts_with = "clear_prompt_limit"
+    )]
+    pub prompt_limit: Option<u32>,
+    /// Remove the project's own prompt limit (sends null); the account's plan allowance still applies.
+    #[arg(long)]
+    pub clear_prompt_limit: bool,
+    /// Convert a pitch project into a tracked project (sends pitch false, on its own). It cannot be undone.
+    #[arg(long)]
+    pub convert_pitch: bool,
 }
 
 #[derive(Debug, Args)]
@@ -914,6 +1271,123 @@ pub struct AnnotationUpdateArgs {
     pub date: Option<String>,
     #[arg(long)]
     pub category_id: Option<u64>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum UrlListsCommand {
+    /// List the project's URL lists with their citation numbers in the window.
+    List(UrlListFilterArgs),
+    /// Show one URL list: its summary, status counts, and a page of its entries.
+    Get(Box<UrlListGetArgs>),
+    /// Create a URL list, with its first entries when given.
+    Create(UrlListCreateArgs),
+    /// Change a URL list's name, description, or currency.
+    Update(UrlListUpdateArgs),
+    /// Delete a URL list and its entries; citation data is kept.
+    Delete {
+        id: u64,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Add entries; one the list already holds takes the added_on, cost, and channel sent.
+    AddEntries(UrlListEntriesAddArgs),
+    /// Remove entries by id or by value as the list shows it.
+    RemoveEntries(UrlListEntriesRemoveArgs),
+}
+
+/// The filters the URL list endpoints read: no prompt type.
+#[derive(Clone, Debug, Default, Args)]
+pub struct UrlListFilterArgs {
+    #[arg(long)]
+    pub model: Option<String>,
+    /// One collection/tag ID, or a comma-separated list.
+    #[arg(long)]
+    pub collection_id: Option<String>,
+    #[arg(long)]
+    pub country_code: Option<String>,
+    #[arg(long)]
+    pub language_code: Option<String>,
+    #[arg(long)]
+    pub prompt: Option<u64>,
+    #[arg(long)]
+    pub brand_kind: Option<String>,
+    #[command(flatten)]
+    pub dates: DateArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct UrlListGetArgs {
+    pub id: u64,
+    /// Only entries with this status: cited, lost or not_cited.
+    #[arg(long)]
+    pub status: Option<String>,
+    /// value, status, added_on, first_cited_at, days_to_cite, citations (default), avg_position, cost or channel.
+    #[arg(long)]
+    pub order: Option<String>,
+    /// desc (default) or asc.
+    #[arg(long)]
+    pub direction: Option<String>,
+    #[command(flatten)]
+    pub filters: UrlListFilterArgs,
+}
+
+/// Entries to write, from repeated --entry flags, a JSON file, or both.
+#[derive(Debug, Args)]
+pub struct UrlListEntryArgs {
+    /// An exact URL, a "host/path/*" prefix, or a domain. Repeat the flag for several.
+    #[arg(long = "entry", value_name = "VALUE")]
+    pub values: Vec<String>,
+    /// A JSON file holding an array of entries: strings, or objects with value, match_type, added_on, cost, and channel.
+    #[arg(long)]
+    pub entries_file: Option<String>,
+    /// url, prefix or domain: how to read every entry without its own match_type (default: detected per value).
+    #[arg(long)]
+    pub match_type: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct UrlListCreateArgs {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub description: Option<String>,
+    /// USD (default), EUR or GBP: the currency of the entry costs.
+    #[arg(long)]
+    pub currency: Option<String>,
+    #[command(flatten)]
+    pub entries: UrlListEntryArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct UrlListUpdateArgs {
+    pub id: u64,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub description: Option<String>,
+    /// USD, EUR or GBP.
+    #[arg(long)]
+    pub currency: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct UrlListEntriesAddArgs {
+    pub id: u64,
+    #[command(flatten)]
+    pub entries: UrlListEntryArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct UrlListEntriesRemoveArgs {
+    pub id: u64,
+    /// Comma-separated entry ids, as `url-lists get` shows them.
+    #[arg(long, value_delimiter = ',')]
+    pub entry_ids: Vec<u64>,
+    /// An entry value as the list shows it, such as acme.com/blog/*. Repeat the flag for several.
+    #[arg(long = "value", value_name = "VALUE")]
+    pub values: Vec<String>,
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1174,6 +1648,33 @@ pub struct TeamInviteArgs {
     /// Give the member access to Billing and Plans (account owner only).
     #[arg(long)]
     pub billing_access: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ApiKeysCommand {
+    /// List your API keys, newest first, revoked ones included. Never shows a secret.
+    List,
+    /// Create a key limited to some of your projects. Its token is printed only once.
+    Create(ApiKeyCreateArgs),
+    /// Revoke an API key; it stops working immediately.
+    Revoke {
+        id: u64,
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct ApiKeyCreateArgs {
+    /// A label for the key, for example the customer it is for.
+    #[arg(long)]
+    pub name: String,
+    /// Projects the key is limited to, at least one.
+    #[arg(long, value_delimiter = ',', required = true)]
+    pub project_ids: Vec<u64>,
+    /// read (default) or read_write.
+    #[arg(long, value_parser = ["read", "read_write"])]
+    pub scope: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]

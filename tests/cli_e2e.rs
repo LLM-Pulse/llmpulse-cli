@@ -107,7 +107,7 @@ fn reports_the_rust_cli_version() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
-        "llmpulse 2.2.0"
+        "llmpulse 2.3.0"
     );
 }
 
@@ -221,6 +221,64 @@ fn rejects_llms_txt_edits_that_are_not_a_json_object() {
     );
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("--edits must be a JSON object"));
+}
+
+#[test]
+fn sends_a_geo_writer_task_to_wordpress() {
+    let (base_url, receiver, handle) = mock_server(202, r#"{"created":true}"#);
+    let output = run(
+        &base_url,
+        &[
+            "intelligence-tasks",
+            "send-to-cms",
+            "77",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/api/v1/intelligence_tasks/77/send_to_cms");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(body, serde_json::json!({ "project_id": 42 }));
+    handle.join().unwrap();
+}
+
+#[test]
+fn lists_wordpress_content() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"data":[]}"#);
+    let output = run(
+        &base_url,
+        &[
+            "cms",
+            "list",
+            "--type",
+            "page",
+            "--status",
+            "draft",
+            "--per-page",
+            "50",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "GET");
+    assert_eq!(
+        request.path,
+        "/api/v1/cms/content?project_id=42&type=page&status=draft&per_page=50"
+    );
+    handle.join().unwrap();
 }
 
 #[test]
@@ -389,6 +447,163 @@ fn refuses_a_list_and_a_clear_of_the_additional_owned_domains_together() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn sends_the_prompt_limit_with_a_project_update() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"project":{"id":123}}"#);
+    let output = run(
+        &base_url,
+        &["projects", "update", "123", "--prompt-limit", "250"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "PATCH");
+    assert_eq!(request.path, "/api/v1/projects/123");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(body, serde_json::json!({ "prompt_limit": 250 }));
+    handle.join().unwrap();
+}
+
+#[test]
+fn creates_a_pitch_project_and_converts_it() {
+    let (base_url, receiver, handle) = mock_server(201, r#"{"project":{"id":7}}"#);
+    let output = run(
+        &base_url,
+        &[
+            "projects",
+            "create",
+            "--website-url",
+            "https://prospect.example",
+            "--name",
+            "Prospect",
+            "--main-country",
+            "US",
+            "--main-language",
+            "en",
+            "--prompts",
+            "best running shoes",
+            "--pitch",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.path, "/api/v1/projects");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(body["pitch"], true);
+    assert_eq!(body["execute_prompts_immediately"], true);
+    handle.join().unwrap();
+
+    let (base_url, receiver, handle) = mock_server(200, r#"{"project":{"id":7}}"#);
+    let output = run(&base_url, &["projects", "update", "7", "--convert-pitch"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "PATCH");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(body, serde_json::json!({ "pitch": false }));
+    handle.join().unwrap();
+
+    let output = run(
+        "http://127.0.0.1:9/api/v1",
+        &[
+            "projects",
+            "update",
+            "7",
+            "--convert-pitch",
+            "--goals",
+            "Win",
+        ],
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--convert-pitch is sent on its own"));
+}
+
+#[test]
+fn clears_the_prompt_limit_with_null() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"project":{"id":123}}"#);
+    let output = run(
+        &base_url,
+        &["projects", "update", "123", "--clear-prompt-limit"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "PATCH");
+    assert_eq!(request.path, "/api/v1/projects/123");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(body, serde_json::json!({ "prompt_limit": null }));
+    assert!(body.as_object().unwrap().contains_key("prompt_limit"));
+    handle.join().unwrap();
+}
+
+#[test]
+fn refuses_a_prompt_limit_and_a_clear_of_it_together() {
+    let output = run(
+        "http://127.0.0.1:9/api/v1",
+        &[
+            "projects",
+            "update",
+            "123",
+            "--prompt-limit",
+            "250",
+            "--clear-prompt-limit",
+        ],
+    );
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("cannot be used with"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn refuses_a_prompt_limit_outside_the_accepted_range() {
+    for value in ["0", "-1", "2147483648", "1.5"] {
+        let flag = format!("--prompt-limit={value}");
+        let output = run(
+            "http://127.0.0.1:9/api/v1",
+            &["projects", "update", "123", &flag],
+        );
+        assert!(!output.status.success(), "accepted {flag}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!("invalid value '{value}' for '--prompt-limit")),
+            "{flag}: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn accepts_the_largest_prompt_limit() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"project":{"id":123}}"#);
+    let output = run(
+        &base_url,
+        &["projects", "update", "123", "--prompt-limit", "2147483647"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let body: serde_json::Value = serde_json::from_str(&receiver.recv().unwrap().body).unwrap();
+    assert_eq!(body, serde_json::json!({ "prompt_limit": 2_147_483_647 }));
+    handle.join().unwrap();
 }
 
 #[test]
@@ -642,6 +857,145 @@ fn reopens_a_geo_audit_issue() {
 }
 
 #[test]
+fn creates_a_url_list_with_entries_from_a_file_and_flags() {
+    let (base_url, receiver, handle) = mock_server(201, r#"{"entries_added":3}"#);
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("entries.json");
+    std::fs::write(
+        &file,
+        r#"[{"value":"https://news.example.com/acme-review","cost":120,"channel":"PR agency"},"acme.com/blog/*"]"#,
+    )
+    .unwrap();
+    let output = run(
+        &base_url,
+        &[
+            "url-lists",
+            "create",
+            "--name",
+            "Sponsored posts",
+            "--currency",
+            "EUR",
+            "--entries-file",
+            file.to_str().unwrap(),
+            "--entry",
+            "https://example.org/a,b",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/api/v1/url_lists");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "project_id": 42,
+            "name": "Sponsored posts",
+            "currency": "EUR",
+            "entries": [
+                {"value": "https://news.example.com/acme-review", "cost": 120, "channel": "PR agency"},
+                "acme.com/blog/*",
+                "https://example.org/a,b",
+            ],
+        })
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn refuses_to_add_url_list_entries_without_any() {
+    let output = run(
+        "http://127.0.0.1:9/api/v1",
+        &[
+            "url-lists",
+            "add-entries",
+            "7",
+            "--match-type",
+            "domain",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Provide at least one entry with --entry or --entries-file")
+    );
+}
+
+#[test]
+fn removes_url_list_entries_by_id_and_value() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"removed":3}"#);
+    let output = run(
+        &base_url,
+        &[
+            "url-lists",
+            "remove-entries",
+            "7",
+            "--entry-ids",
+            "11,12",
+            "--value",
+            "acme.com/blog/*",
+            "--yes",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = receiver.recv().unwrap();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/api/v1/url_lists/7/entries/remove");
+    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "project_id": 42,
+            "entry_ids": [11, 12],
+            "values": ["acme.com/blog/*"],
+        })
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn removing_url_list_entries_requires_yes_without_a_terminal() {
+    let output = Command::new(binary())
+        .args([
+            "url-lists",
+            "remove-entries",
+            "7",
+            "--entry-ids",
+            "11",
+            "--project-id",
+            "42",
+        ])
+        .args([
+            "--api-key",
+            "test_key",
+            "--base-url",
+            "http://127.0.0.1:9/api/v1",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Removing entries from URL list 7 requires --yes")
+    );
+}
+
+#[test]
 fn reads_the_web_analytics_schema_for_the_project() {
     let (base_url, receiver, handle) = mock_server(200, r#"{"provider":"plausible","rules":[]}"#);
     let output = run(
@@ -716,6 +1070,105 @@ fn sends_hogql_from_a_file_as_a_string() {
     assert_eq!(
         body["query"],
         "SELECT event, count() FROM events GROUP BY event"
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn sends_include_project_false_to_leave_the_project_out() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"summary":{}}"#);
+    let output = run(
+        &base_url,
+        &[
+            "metrics",
+            "summary",
+            "--include-project",
+            "false",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        receiver.recv().unwrap().path,
+        "/api/v1/metrics/summary?project_id=42&include_project=false"
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn keeps_a_bare_include_project_flag_meaning_true() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"current":[]}"#);
+    let output = run(
+        &base_url,
+        &["metrics", "sov", "--include-project", "--project-id", "42"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        receiver.recv().unwrap().path,
+        "/api/v1/metrics/sov?project_id=42&include_project=true"
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn sends_the_top_sources_tag_union_and_domains_as_one_list_each() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"data":[]}"#);
+    let output = run(
+        &base_url,
+        &[
+            "metrics",
+            "top-sources",
+            "--collection-ids",
+            "12,15",
+            "--domains",
+            "wikipedia.org,reddit.com",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        receiver.recv().unwrap().path,
+        "/api/v1/metrics/top_sources?project_id=42&collection_ids=12%2C15&domains=wikipedia.org%2Creddit.com"
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn sends_the_citing_domains_as_one_comma_separated_value() {
+    let (base_url, receiver, handle) = mock_server(200, r#"{"domains":[]}"#);
+    let output = run(
+        &base_url,
+        &[
+            "citations",
+            "mentions-by-domain",
+            "gmac.com",
+            "educaweb.com",
+            "--project-id",
+            "42",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        receiver.recv().unwrap().path,
+        "/api/v1/citation_intelligence/mentions_by_domain?project_id=42&domains=gmac.com%2Ceducaweb.com"
     );
     handle.join().unwrap();
 }

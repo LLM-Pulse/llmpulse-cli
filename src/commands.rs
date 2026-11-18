@@ -62,10 +62,10 @@ fn run_config(command: ConfigCommand) -> Result<()> {
         }
         ConfigCommand::Show => {
             let mut value = serde_json::to_value(config::read_config()?)?;
-            if let Some(api_key) = value.get_mut("api_key") {
-                if let Some(raw) = api_key.as_str() {
-                    *api_key = Value::String(config::mask_api_key(raw));
-                }
+            if let Some(api_key) = value.get_mut("api_key")
+                && let Some(raw) = api_key.as_str()
+            {
+                *api_key = Value::String(config::mask_api_key(raw));
             }
             output::print(&value, OutputFormat::Json)?;
         }
@@ -178,6 +178,7 @@ async fn run_api_command(client: &ApiClient, global: &GlobalArgs, command: Comma
         Command::Citations { command } => run_citations(client, global, command).await,
         Command::Answers { command } => run_answers(client, global, command).await,
         Command::Sentiments { command } => run_sentiments(client, global, command).await,
+        Command::CustomReports { command } => run_custom_reports(client, global, command).await,
         Command::Recommendations { command } => run_recommendations(client, global, command).await,
         Command::IntelligenceTasks { command } => {
             run_intelligence_tasks(client, global, command).await
@@ -187,7 +188,10 @@ async fn run_api_command(client: &ApiClient, global: &GlobalArgs, command: Comma
         Command::Projects { command } => run_projects(client, global, command).await,
         Command::Collections { command } => run_collections(client, global, command).await,
         Command::Annotations { command } => run_annotations(client, global, command).await,
+        Command::UrlLists { command } => run_url_lists(client, global, command).await,
         Command::Team { command } => run_team(client, global, command).await,
+        Command::ApiKeys { command } => run_api_keys(client, global, command).await,
+        Command::Cms { command } => run_cms(client, global, command).await,
         Command::Store { command } => run_store(client, global, command).await,
         Command::Reports { command } => run_reports(client, global, command).await,
         Command::GeoAudits { command } => run_geo_audits(client, global, command).await,
@@ -232,6 +236,25 @@ fn add_filters(query: &mut Query, filters: &FilterArgs, include_range: bool) {
     query.push_opt("prompt_type", filters.prompt_type.as_deref());
     query.push_opt("brand_kind", filters.brand_kind.as_deref());
     add_dates(query, &filters.dates, include_range);
+}
+
+fn add_url_list_filters(query: &mut Query, filters: &UrlListFilterArgs) {
+    query.push_opt("model", filters.model.as_deref());
+    query.push_opt("collection_id", filters.collection_id.as_deref());
+    query.push_opt("country_code", filters.country_code.as_deref());
+    query.push_opt("language_code", filters.language_code.as_deref());
+    query.push_opt("prompt", filters.prompt);
+    query.push_opt("brand_kind", filters.brand_kind.as_deref());
+    add_dates(query, &filters.dates, true);
+}
+
+fn add_owned_media_filters(query: &mut Query, filters: &OwnedMediaFilterArgs) {
+    query.push_opt("model", filters.model.as_deref());
+    query.push_opt("collection_id", filters.collection_id.as_deref());
+    query.push_opt("country_code", filters.country_code.as_deref());
+    query.push_opt("language_code", filters.language_code.as_deref());
+    query.push_opt("brand_kind", filters.brand_kind.as_deref());
+    add_dates(query, &filters.dates, true);
 }
 
 fn add_pagination(query: &mut Query, global: &GlobalArgs) {
@@ -359,8 +382,10 @@ async fn run_dimensions(
 ) -> Result<()> {
     match command {
         DimensionsCommand::Projects { command } => match command {
-            ProjectsDimensionCommand::List => {
-                list_get(client, global, "/dimensions/projects", Query::new()).await
+            ProjectsDimensionCommand::List { pitch } => {
+                let mut query = Query::new();
+                query.push_opt("pitch", pitch.as_deref());
+                list_get(client, global, "/dimensions/projects", query).await
             }
             ProjectsDimensionCommand::Get { id } => print_response(
                 client
@@ -441,6 +466,33 @@ async fn run_dimensions(
         DimensionsCommand::OwnedMedia(args) => {
             dimension_list(client, global, "/dimensions/owned_media", args).await
         }
+        DimensionsCommand::OwnedMediaSummary(args) => {
+            let mut query = project_query(client)?;
+            query.push(("provider".into(), args.provider));
+            add_owned_media_filters(&mut query, &args.filters);
+            print_response(
+                client
+                    .get("/dimensions/owned_media/summary", &query)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        // The API itself refuses a request with neither --url nor --profile.
+        DimensionsCommand::OwnedMediaCitingPrompts(args) => {
+            let mut query = project_query(client)?;
+            query.push(("provider".into(), args.provider));
+            query.push_opt("url", args.url.as_deref());
+            query.push_opt("profile", args.profile.as_deref());
+            add_owned_media_filters(&mut query, &args.filters);
+            list_get(
+                client,
+                global,
+                "/dimensions/owned_media/citing_prompts",
+                query,
+            )
+            .await
+        }
         DimensionsCommand::Reddit(args) => {
             dimension_list(client, global, "/dimensions/reddit", args).await
         }
@@ -504,6 +556,17 @@ async fn run_reputation(
                 client
                     .get(&format!("/reputation/reports/{id}"), &query)
                     .await?,
+                global.output,
+                false,
+            )
+        }
+        ReputationCommand::Create { recalculate } => {
+            let body = json!({
+                "project_id": client.project_id()?,
+                "recalculate": recalculate,
+            });
+            print_response(
+                client.post("/reputation/reports", body).await?,
                 global.output,
                 false,
             )
@@ -572,6 +635,8 @@ async fn run_metrics(
             let mut query = metric_query(client, &args.metrics)?;
             query.push_opt("sort", args.sort);
             query.push_opt("query", args.query);
+            add_csv_values(&mut query, "collection_ids", &args.collection_ids);
+            add_csv_values(&mut query, "domains", &args.domains);
             list_get(client, global, "/metrics/top_sources", query).await
         }
         MetricsCommand::AgentTraffic(args) => {
@@ -637,7 +702,7 @@ fn metric_query(client: &ApiClient, args: &MetricArgs) -> Result<Query> {
     add_csv_values(&mut query, "metrics", &args.metrics);
     query.push_opt("granularity", args.granularity.as_deref());
     add_csv_values(&mut query, "competitors", &args.competitors);
-    query.push_bool("include_project", args.include_project);
+    query.push_opt("include_project", args.include_project);
     query.push_opt("group_by", args.group_by.as_deref());
     query.push_opt("view", args.view.as_deref());
     Ok(query)
@@ -684,14 +749,33 @@ async fn run_search_console(
     command: SearchConsoleCommand,
 ) -> Result<()> {
     let (path, args, list) = match command {
+        SearchConsoleCommand::Properties => {
+            return print_response(
+                client
+                    .get("/search_console/properties", &project_query(client)?)
+                    .await?,
+                global.output,
+                false,
+            );
+        }
         SearchConsoleCommand::Summary(args) => ("/search_console/summary", args, false),
         SearchConsoleCommand::Timeseries(args) => ("/search_console/timeseries", args, false),
         SearchConsoleCommand::Queries(args) => ("/search_console/queries", args, true),
         SearchConsoleCommand::Pages(args) => ("/search_console/pages", args, true),
         SearchConsoleCommand::Rows(args) => ("/search_console/rows", args, true),
+        SearchConsoleCommand::Opportunities(args) => ("/search_console/opportunities", args, true),
+        SearchConsoleCommand::Cannibalization(args) => {
+            ("/search_console/cannibalization", args, true)
+        }
+        SearchConsoleCommand::Decay(args) => ("/search_console/decay", args, true),
+        SearchConsoleCommand::BrandSplit(args) => ("/search_console/brand_split", args, false),
+        SearchConsoleCommand::AiVisibilityGaps(args) => {
+            ("/search_console/ai_visibility_gaps", args, true)
+        }
     };
     let mut query = project_query(client)?;
     add_dates(&mut query, &args.dates, true);
+    query.push_opt("property", args.property);
     query.push_opt("dimension", args.dimension);
     query.push_opt("granularity", args.granularity);
     query.push_opt("sort", args.sort);
@@ -703,6 +787,12 @@ async fn run_search_console(
     query.push_opt("aggregation_type", args.aggregation_type);
     query.push_opt("start_row", args.start_row);
     query.push_opt("dimensions", args.dimensions);
+    query.push_opt("min_impressions", args.min_impressions);
+    query.push_opt("min_position", args.min_position);
+    query.push_opt("max_position", args.max_position);
+    query.push_opt("min_share", args.min_share);
+    query.push_opt("min_clicks", args.min_clicks);
+    query.push_bool("unmatched_only", args.unmatched_only);
     if list {
         list_get(client, global, path, query).await
     } else {
@@ -773,14 +863,14 @@ async fn run_citations(
             let mut query = citation_query(client, &args.filters)?;
             query.push_opt("order", args.order);
             query.push_opt("direction", Some(args.direction));
+            query.push_opt("key", args.key);
+            query.push_bool("include_series", args.include_series);
             list_get(client, global, "/citation_intelligence/groups", query).await
         }
         CitationsCommand::MentionsByDomain { domains, filters } => {
             let mut query = project_query(client)?;
             add_filters(&mut query, &filters, false);
-            for domain in domains {
-                query.push(("domains[]".into(), domain));
-            }
+            add_csv_values(&mut query, "domains", &domains);
             print_response(
                 client
                     .get("/citation_intelligence/mentions_by_domain", &query)
@@ -792,8 +882,10 @@ async fn run_citations(
         CitationsCommand::Get {
             url_sha256,
             filters,
+            include_series,
         } => {
-            let query = citation_query(client, &filters)?;
+            let mut query = citation_query(client, &filters)?;
+            query.push_bool("include_series", include_series);
             print_response(
                 client
                     .get(&format!("/citation_intelligence/urls/{url_sha256}"), &query)
@@ -867,13 +959,78 @@ async fn run_sentiments(
     global: &GlobalArgs,
     command: SentimentsCommand,
 ) -> Result<()> {
-    let SentimentsCommand::List(args) = command;
+    match command {
+        SentimentsCommand::List(args) => {
+            let mut query = project_query(client)?;
+            add_filters(&mut query, &args.filters, false);
+            query.push_opt("competitor_id", args.competitor_id);
+            query.push_bool("brand_only", args.brand_only);
+            query.push_opt("analysis", args.analysis);
+            list_get(client, global, "/sentiments", query).await
+        }
+        SentimentsCommand::Topics(args) => {
+            let query = sentiment_breakdown_query(client, args)?;
+            list_get(client, global, "/reports/sentiment/topics", query).await
+        }
+        SentimentsCommand::Tags(args) => {
+            let query = sentiment_breakdown_query(client, args)?;
+            list_get(client, global, "/reports/sentiment/tags", query).await
+        }
+    }
+}
+
+fn sentiment_breakdown_query(client: &ApiClient, args: SentimentBreakdownArgs) -> Result<Query> {
     let mut query = project_query(client)?;
-    add_filters(&mut query, &args.filters, false);
-    query.push_opt("competitor_id", args.competitor_id);
-    query.push_bool("brand_only", args.brand_only);
+    add_dates(&mut query, &args.dates, true);
+    query.push_opt("model", args.model);
+    query.push_opt("collection_id", args.collection_id);
+    query.push_opt("country_code", args.country_code);
+    query.push_opt("language_code", args.language_code);
+    query.push_opt("brand_kind", args.brand_kind);
     query.push_opt("analysis", args.analysis);
-    list_get(client, global, "/sentiments", query).await
+    query.push_opt("topic", args.topic);
+    query.push_opt("query", args.query);
+    query.push_opt("brand", args.brand);
+    query.push_opt("sort", args.sort);
+    query.push_opt("sort_dir", args.sort_dir);
+    Ok(query)
+}
+
+async fn run_custom_reports(
+    client: &ApiClient,
+    global: &GlobalArgs,
+    command: CustomReportsCommand,
+) -> Result<()> {
+    match command {
+        CustomReportsCommand::List => {
+            let query = project_query(client)?;
+            list_get(client, global, "/custom_reports", query).await
+        }
+        CustomReportsCommand::Get { id } => {
+            let query = project_query(client)?;
+            print_response(
+                client.get(&format!("/custom_reports/{id}"), &query).await?,
+                global.output,
+                false,
+            )
+        }
+        CustomReportsCommand::Send { id, yes } => {
+            confirm_write(
+                &format!("Sending custom report {id}"),
+                &format!("Email custom report {id} to its recipients now?"),
+                "Send cancelled",
+                yes,
+            )?;
+            let body = json!({ "project_id": client.project_id()? });
+            print_response(
+                client
+                    .post(&format!("/custom_reports/{id}/send"), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+    }
 }
 
 async fn run_recommendations(
@@ -905,6 +1062,27 @@ async fn run_recommendations(
             print_response(
                 client
                     .get(&format!("/recommendations/{id}"), &query)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        RecommendationsCommand::UpdateItem {
+            id,
+            item_id,
+            status,
+            reason,
+        } => {
+            let mut body = json!({
+                "project_id": client.project_id()?,
+                "status": status,
+            });
+            if let Some(reason) = reason {
+                body["reason"] = json!(reason);
+            }
+            print_response(
+                client
+                    .patch(&format!("/recommendations/{id}/items/{item_id}"), body)
                     .await?,
                 global.output,
                 false,
@@ -995,6 +1173,48 @@ async fn run_intelligence_tasks(
                 false,
             )
         }
+        IntelligenceTasksCommand::SendToCms { id } => {
+            let body = json!({ "project_id": client.project_id()? });
+            print_response(
+                client
+                    .post(&format!("/intelligence_tasks/{id}/send_to_cms"), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+    }
+}
+
+// The site answers live, at most 50 rows a page, so --all is not offered here:
+// fetch_all pages by 100.
+async fn run_cms(client: &ApiClient, global: &GlobalArgs, command: CmsCommand) -> Result<()> {
+    match command {
+        CmsCommand::List {
+            content_type,
+            status,
+            search,
+        } => {
+            let mut query = project_query(client)?;
+            query.push_opt("type", content_type);
+            query.push_opt("status", status);
+            query.push_opt("search", search);
+            add_pagination(&mut query, global);
+            print_response(
+                client.get("/cms/content", &query).await?,
+                global.output,
+                true,
+            )
+        }
+        CmsCommand::Get { id, content_type } => {
+            let mut query = project_query(client)?;
+            query.push_opt("type", content_type);
+            print_response(
+                client.get(&format!("/cms/content/{id}"), &query).await?,
+                global.output,
+                false,
+            )
+        }
     }
 }
 
@@ -1013,6 +1233,101 @@ async fn run_prompts(
             });
             print_response(client.post("/prompts", body).await?, global.output, false)
         }
+        PromptsCommand::Import { rows_file } => {
+            let rows = json_file(&rows_file, "--rows-file")?;
+            if !rows.is_array() {
+                return Err(CliError::Usage(
+                    "--rows-file must contain a JSON array of rows".into(),
+                ));
+            }
+            let body = json!({ "project_id": client.project_id()?, "rows": rows });
+            print_response(
+                client.post("/prompts/import", body).await?,
+                global.output,
+                false,
+            )
+        }
+        PromptsCommand::RemoveTags(args) => {
+            let body = compact_object(json!({
+                "project_id": client.project_id()?,
+                "prompt_ids": args.prompt_ids,
+                "tag_ids": optional_vec(&args.tag_ids),
+                "tag_names": optional_vec(&args.tag_names),
+            }));
+            print_response(
+                client.post("/prompts/remove_tags", body).await?,
+                global.output,
+                false,
+            )
+        }
+        PromptsCommand::Generate(args) => {
+            let body = compact_object(json!({
+                "project_id": client.project_id()?,
+                "source": args.source,
+                "query": args.query,
+                "count": args.count,
+                "country_code": args.country_code,
+                "language_code": args.language_code,
+                "competitor_id": args.competitor_id,
+                "search_type": args.search_type,
+                "keywords": optional_vec(&args.keywords),
+                "source_country_code": args.source_country_code,
+                "source_language_code": args.source_language_code,
+                "property": args.property,
+                "min_words": args.min_words,
+                "all_countries": args.all_countries.then_some(true),
+            }));
+            print_response(
+                client.post("/prompt_generations", body).await?,
+                global.output,
+                false,
+            )
+        }
+        PromptsCommand::Generation { id } => {
+            let query = project_query(client)?;
+            print_response(
+                client
+                    .get(&format!("/prompt_generations/{id}"), &query)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        PromptsCommand::Suggestions { command } => match command {
+            PromptSuggestionsCommand::List { source, status } => {
+                let mut query = project_query(client)?;
+                query.push_opt("source", source);
+                query.push_opt("status", status);
+                list_get(client, global, "/suggested_prompts", query).await
+            }
+            PromptSuggestionsCommand::Accept {
+                ids,
+                tag_ids,
+                tag_names,
+                create_missing,
+            } => {
+                let body = compact_object(json!({
+                    "project_id": client.project_id()?,
+                    "ids": ids,
+                    "tag_ids": optional_vec(&tag_ids),
+                    "tag_names": optional_vec(&tag_names),
+                    "create_missing": create_missing.then_some(true),
+                }));
+                print_response(
+                    client.post("/suggested_prompts/accept", body).await?,
+                    global.output,
+                    false,
+                )
+            }
+            PromptSuggestionsCommand::Reject { ids } => {
+                let body = json!({ "project_id": client.project_id()?, "ids": ids });
+                print_response(
+                    client.post("/suggested_prompts/reject", body).await?,
+                    global.output,
+                    false,
+                )
+            }
+        },
         PromptsCommand::AssignTags(args) => {
             let body = compact_object(json!({
                 "project_id": client.project_id()?,
@@ -1023,6 +1338,22 @@ async fn run_prompts(
             }));
             print_response(
                 client.post("/prompts/assign_tags", body).await?,
+                global.output,
+                false,
+            )
+        }
+        PromptsCommand::Update {
+            id,
+            prompt_type,
+            brand_kind,
+        } => {
+            let body = compact_object(json!({
+                "project_id": client.project_id()?,
+                "prompt_type": prompt_type,
+                "brand_kind": brand_kind,
+            }));
+            print_response(
+                client.patch(&format!("/prompts/{id}"), body).await?,
                 global.output,
                 false,
             )
@@ -1045,6 +1376,15 @@ async fn run_competitors(
     command: CompetitorsCommand,
 ) -> Result<()> {
     match command {
+        CompetitorsCommand::Suggestions {
+            basis,
+            query: search,
+        } => {
+            let mut query = project_query(client)?;
+            query.push_opt("basis", basis);
+            query.push_opt("query", search);
+            list_get(client, global, "/competitors/suggestions", query).await
+        }
         CompetitorsCommand::Create(args) => {
             let body = compact_object(json!({
                 "project_id": client.project_id()?,
@@ -1115,11 +1455,12 @@ async fn run_projects(
                 "competitors": optional_vec(&args.competitors),
                 "external_identifier": args.external_identifier,
                 "execute_prompts_immediately": !args.defer_execution,
+                "pitch": args.pitch.then_some(true),
             }));
             print_response(client.post("/projects", body).await?, global.output, false)
         }
         ProjectsCommand::Update(args) => {
-            let body = compact_object(json!({
+            let mut body = compact_object(json!({
                 "brand_name": args.brand_name,
                 "description": args.description,
                 "industry": args.industry,
@@ -1134,10 +1475,24 @@ async fn run_projects(
                 } else {
                     optional_vec(&args.additional_owned_domains)
                 },
+                "prompt_limit": args.prompt_limit,
             }));
+            if args.clear_prompt_limit
+                && let Some(fields) = body.as_object_mut()
+            {
+                fields.insert("prompt_limit".into(), Value::Null);
+            }
+            if args.convert_pitch {
+                if body.as_object().is_some_and(|fields| !fields.is_empty()) {
+                    return Err(CliError::Usage(
+                        "--convert-pitch is sent on its own, without other fields".into(),
+                    ));
+                }
+                body = json!({ "pitch": false });
+            }
             if body.as_object().is_none_or(|fields| fields.is_empty()) {
                 return Err(CliError::Usage(
-                    "Provide at least one profile field (--brand-name, --description, --industry, --business-model, --target-audience, --brand-voice, --goals, --primary-products, --matching-names, --additional-owned-domains, --clear-additional-owned-domains)".into(),
+                    "Provide at least one profile field (--brand-name, --description, --industry, --business-model, --target-audience, --brand-voice, --goals, --primary-products, --matching-names, --additional-owned-domains, --clear-additional-owned-domains, --prompt-limit, --clear-prompt-limit) or --convert-pitch".into(),
                 ));
             }
             print_response(
@@ -1185,6 +1540,40 @@ async fn run_projects(
             object.insert("step".into(), Value::String(step));
             print_response(
                 client.patch(&format!("/project_drafts/{id}"), body).await?,
+                global.output,
+                false,
+            )
+        }
+        ProjectsCommand::OwnedMedia { id } => print_response(
+            client
+                .get(&format!("/projects/{id}/owned_media"), &Vec::new())
+                .await?,
+            global.output,
+            false,
+        ),
+        ProjectsCommand::Delete { id, yes } => {
+            confirm_delete(&format!("project {id} and all of its data"), yes)?;
+            print_response(
+                client
+                    .delete(&format!("/projects/{id}"), &Vec::new())
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        ProjectsCommand::OwnedMediaUpdate { id, payload } => {
+            let body: Value = serde_json::from_str(&payload).map_err(|error| {
+                CliError::Usage(format!("--payload must be a JSON object: {error}"))
+            })?;
+            if body.as_object().is_none_or(|fields| fields.is_empty()) {
+                return Err(CliError::Usage(
+                    "--payload must be a JSON object with at least one owned-media field".into(),
+                ));
+            }
+            print_response(
+                client
+                    .patch(&format!("/projects/{id}/owned_media"), body)
+                    .await?,
                 global.output,
                 false,
             )
@@ -1322,6 +1711,141 @@ async fn run_annotations(
             )
         }
     }
+}
+
+async fn run_url_lists(
+    client: &ApiClient,
+    global: &GlobalArgs,
+    command: UrlListsCommand,
+) -> Result<()> {
+    match command {
+        UrlListsCommand::List(args) => {
+            let mut query = project_query(client)?;
+            add_url_list_filters(&mut query, &args);
+            // Not list_get: this endpoint is not paginated, so --all would request page 1 forever.
+            print_response(client.get("/url_lists", &query).await?, global.output, true)
+        }
+        UrlListsCommand::Get(args) => {
+            let mut query = project_query(client)?;
+            query.push_opt("status", args.status.as_deref());
+            query.push_opt("order", args.order.as_deref());
+            query.push_opt("direction", args.direction.as_deref());
+            add_url_list_filters(&mut query, &args.filters);
+            add_pagination(&mut query, global);
+            print_response(
+                client
+                    .get(&format!("/url_lists/{}", args.id), &query)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        UrlListsCommand::Create(args) => {
+            let entries = url_list_entries(&args.entries)?;
+            let body = compact_object(json!({
+                "project_id": client.project_id()?,
+                "name": args.name,
+                "description": args.description,
+                "currency": args.currency,
+                "entries": optional_vec(&entries),
+                "match_type": args.entries.match_type,
+            }));
+            print_response(client.post("/url_lists", body).await?, global.output, false)
+        }
+        UrlListsCommand::Update(args) => {
+            if args.name.is_none() && args.description.is_none() && args.currency.is_none() {
+                return Err(CliError::Usage(
+                    "Provide at least one URL list field to update".into(),
+                ));
+            }
+            let body = compact_object(json!({
+                "project_id": client.project_id()?,
+                "name": args.name,
+                "description": args.description,
+                "currency": args.currency,
+            }));
+            print_response(
+                client
+                    .patch(&format!("/url_lists/{}", args.id), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        UrlListsCommand::Delete { id, yes } => {
+            confirm_delete(&format!("URL list {id}"), yes)?;
+            let query = project_query(client)?;
+            print_response(
+                client.delete(&format!("/url_lists/{id}"), &query).await?,
+                global.output,
+                false,
+            )
+        }
+        UrlListsCommand::AddEntries(args) => {
+            let entries = url_list_entries(&args.entries)?;
+            if entries.is_empty() {
+                return Err(CliError::Usage(
+                    "Provide at least one entry with --entry or --entries-file".into(),
+                ));
+            }
+            let body = compact_object(json!({
+                "project_id": client.project_id()?,
+                "entries": entries,
+                "match_type": args.entries.match_type,
+            }));
+            print_response(
+                client
+                    .post(&format!("/url_lists/{}/entries", args.id), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+        UrlListsCommand::RemoveEntries(args) => {
+            if args.entry_ids.is_empty() && args.values.is_empty() {
+                return Err(CliError::Usage(
+                    "Provide the entries to remove with --entry-ids or --value".into(),
+                ));
+            }
+            confirm_write(
+                &format!("Removing entries from URL list {}", args.id),
+                &format!(
+                    "Remove these entries from URL list {}? This cannot be undone",
+                    args.id
+                ),
+                "Remove cancelled",
+                args.yes,
+            )?;
+            let body = compact_object(json!({
+                "project_id": client.project_id()?,
+                "entry_ids": optional_vec(&args.entry_ids),
+                "values": optional_vec(&args.values),
+            }));
+            print_response(
+                client
+                    .post(&format!("/url_lists/{}/entries/remove", args.id), body)
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+    }
+}
+
+fn url_list_entries(args: &UrlListEntryArgs) -> Result<Vec<Value>> {
+    let mut entries = match &args.entries_file {
+        Some(path) => match json_file(path, "--entries-file")? {
+            Value::Array(rows) => rows,
+            _ => {
+                return Err(CliError::Usage(
+                    "--entries-file must contain a JSON array of entries".into(),
+                ));
+            }
+        },
+        None => Vec::new(),
+    };
+    entries.extend(args.values.iter().cloned().map(Value::String));
+    Ok(entries)
 }
 
 async fn run_reports(
@@ -1666,6 +2190,38 @@ async fn run_team(client: &ApiClient, global: &GlobalArgs, command: TeamCommand)
             print_response(
                 client
                     .delete(&format!("/team_members/{id}"), &Vec::new())
+                    .await?,
+                global.output,
+                false,
+            )
+        }
+    }
+}
+
+async fn run_api_keys(
+    client: &ApiClient,
+    global: &GlobalArgs,
+    command: ApiKeysCommand,
+) -> Result<()> {
+    match command {
+        ApiKeysCommand::List => list_get(client, global, "/api_keys", Query::new()).await,
+        ApiKeysCommand::Create(args) => {
+            let mut body = json!({ "name": args.name, "project_ids": args.project_ids });
+            if let Some(scope) = args.scope {
+                body["scope"] = json!(scope);
+            }
+            print_response(client.post("/api_keys", body).await?, global.output, false)
+        }
+        ApiKeysCommand::Revoke { id, yes } => {
+            confirm_write(
+                &format!("Revoking API key {id}"),
+                &format!("Revoke API key {id}? It stops working immediately"),
+                "Revoke cancelled",
+                yes,
+            )?;
+            print_response(
+                client
+                    .delete(&format!("/api_keys/{id}"), &Vec::new())
                     .await?,
                 global.output,
                 false,
